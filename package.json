@@ -1,0 +1,11 @@
+{
+  "name": "dsh-import-vscode-ai-files",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Load VSCode/Copilot AI configuration (.github/copilot-instructions.md, .github/instructions, .github/skills) into DeepSeek Harness sessions.",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
