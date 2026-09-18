@@ -38,7 +38,7 @@ pwsh -File install.ps1 -Uninstall      # 移除
 
 | 改什么 | 需要重启吗 |
 |---|---|
-| 仓库里的 `.github/copilot-instructions.md`、`instructions/`、`skills/` | **不需要** —— 每个模型步骤重新读盘 |
+| 仓库里的 `.github/copilot-instructions.md`、`instructions/`、`skills/` | **不需要** —— 每个 pre-step 重新读盘；内容有变化就追加一条新的注入 |
 | `install.ps1` 写入的 patch 行 | **需要** |
 | 插件自身的 `src/*.js` | **需要**（Node 的 ESM 缓存） |
 
@@ -48,8 +48,9 @@ pwsh -File install.ps1 -Uninstall      # 移除
 
 ### 重启后的验收清单
 
-1. 在任意含 `.github/copilot-instructions.md` 的目录（例如 `D:\NEVSTOP-LAB\<某个 repo>`）
-   开会话，应看到 `Instructions from: <repo>/.github/copilot-instructions.md`。
+1. 在任意含 `.github/copilot-instructions.md` 的目录（例如 `D:\CSM-LLM-WORKSPACE`）
+   开会话，GUI 的注入面板里应出现一条**独立的「指令注入 · import-vscode-ai-files」**，
+   正文含 `Instructions from: .github/copilot-instructions.md`。
 2. 新建一个 `.github/skills/demo/SKILL.md`（`name` + `description` 必填），
    下一次请求应出现在 `skill` 工具目录里，且**无需重启**。
 3. 新建 `.github/instructions/x.instructions.md` 且**不写** `applyTo`，应立即注入；
@@ -74,9 +75,24 @@ pwsh -File install.ps1 -Uninstall      # 移除
 
 | 用途 | 接缝 |
 |---|---|
-| 注入 instructions | `ctx.systemPrompt.context({ name, order, text })` —— 回调收到 `{ agent, scope, signal }`，`agent.session.header.cwd` **同步**可读 |
+| 注入 instructions | `ctx.on('agent/pre-step', …)` —— 把一条 user 消息折进本步骤的消息批次 |
 | 注册 skills | `ctx.skills.registerProvider(create)` —— `list({ cwd })` 由真实消费方带着会话 cwd 调用 |
 | 已触及文件 + 目录失效 | `ctx.on('fs/observed', …)` —— `actor` 就是 `ToolExecution`，其 `.agent` 给出会话身份 |
+
+**为什么不用 `systemPrompt.context`**：客户端按 `source.form` 决定一条注入行的形态与标题
+（`KNOWN_FORMS = ['instructions','catalog','snapshot','notice','relay','recall']`）。
+`systemPrompt.context` 的正文会被收进 `dsh-system-prompt` 那条
+「状态快照 · @deepseek-ai/dsh-system-prompt」里，标题不带仓库路径，
+看上去就像"根本没注入"。`agent/pre-step` + `source.form = 'instructions'`
+才能拿到与 AGENTS.md 同级的独立「指令注入」行。
+
+这条路的代价是两处**内部契约**（升级时优先查，见文末清单）：
+
+1. **注入消息的形状**。profile 本地插件 import 不到 harness 的 `node_modules`，
+   所以无法调用 `@deepseek-ai/dsh-llm` 的 `createUserMessage`，只能按字面复刻它的
+   四个字段 `{ id, role: 'user', content, source }` 并 deep-freeze。
+2. **pre-step decision 的形状**：监听器收到 `{ agent, messages, step, signal }`，
+   必须 `await next()`，再返回 `{ …decision, messages }`。
 
 没有 watcher，没有持久化，没有别的内部字段。
 
@@ -95,8 +111,8 @@ harness 自己的依赖。这同时满足「减少依赖」和「DSH 升级不�
 
 ### 5. 同步 `node:fs`
 
-`systemPrompt.context` 的 `text` 是**同步**函数。用同步 IO ⇒ 零缓存、零状态、
-每次组装真的重读磁盘，代码最短，也避开了对 `ctx.fs` 服务的依赖。
+`discover()` 全程同步：每个 pre-step 都重新读盘，零缓存、零失效逻辑，
+所以改文件正文下一步就生效。这也避开了对 `ctx.fs` 服务的依赖。
 
 ### 6. 为什么不用 `dsh-agent-instructions` 的 `instructionFileCandidates`
 
@@ -107,11 +123,18 @@ harness 自己的依赖。这同时满足「减少依赖」和「DSH 升级不�
 ## DSH 升级后如果失效，按这个顺序查
 
 1. `~/.dsh/profiles/<profile>/cordis.patch.yml` 里的行还在不在（`install.ps1 -Uninstall` 会删掉它）。
-2. 三个接缝的名字有没有变：`systemPrompt.context`、`skills.registerProvider`、`fs/observed`。
-   用 `cordis_inspect_query` 查 `Service.listService` 与 `Event.listEvents` 确认。
-3. `agent.session.header.cwd` 或 `actor.agent` 还在不在。
+2. 三个接缝还在不在：`agent/pre-step`、`skills.registerProvider`、`fs/observed`。
+   用 `cordis_inspect_query` 查 `Event.listEvents` 与 `Service.listService` 确认。
+3. **注入消息的四个字段**（`id` / `role` / `content` / `source`）与
+   **pre-step decision 的形状**（`await next()` 之后返回 `{ …decision, messages }`）。
+   对照 `@deepseek-ai/dsh-llm/lib/types/message.js` 的 `createUserMessage`。
+   插件里这段整个包在 try/catch 里：形状变了只会记一条 `console.error` 并跳过注入，
+   不会弄坏整个 turn。
+4. 客户端标题：`dsh-client-ui-trajectory` / `dsh-client-ui-chat` 的
+   `contextProvenance` 与 `KNOWN_FORMS` 决定显示成「指令注入」还是「状态快照」。
+5. `agent.session.header.cwd` 或 `actor.agent` 还在不在。
    用动态 Cordis 插件打印一次即可（`cordis-plugin-development` skill 有流程）。
-4. 先跑 `node --test` 排除是自己的逻辑回归。
+6. 先跑 `node --test` 排除是自己的逻辑回归。
 
 ## 目录
 
