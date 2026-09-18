@@ -24,23 +24,27 @@ dsh-import-vscode-ai-files/
 ├── CONTRIBUTING.md      # 本文档
 ├── CHANGELOG.md         # 每个版本的变更；发布正文的来源
 ├── doc/design.md        # 设计文档：架构与关键机制
-├── package.json         # bundle manifest（dsh.bundle.patch）
+├── package.json         # bundle manifest（dsh.bundle.patch）与 client manifest（dsh.client）
 ├── cordis.patch.yml     # 组合层：插入插件行
-├── index.js             # 插件入口：指令注入 + skill provider + fs/observed
+├── index.js             # 插件入口：指令注入 + skill provider + fs/observed + 设置接线
 ├── lib/
-│   ├── discover.js      # 扫描 cwd + 直接子目录，产出 instructions 与 skills
+│   ├── discover.js      # 扫描 cwd / paths + 直接子目录，产出 instructions 与 skills
 │   ├── frontmatter.js   # 极简 YAML frontmatter
-│   └── glob.js          # applyTo 的极简 glob → RegExp
+│   ├── glob.js          # applyTo 的极简 glob → RegExp
+│   ├── settings.js      # 设置命名空间的 schema（z 由调用方传入，可离线测试）
+│   └── client.js        # browser half：设置卡片（手写 lazy-CJS bundle）
 ├── scripts/
 │   ├── release-notes.mjs# 由 CHANGELOG 组装 Release 正文（零依赖）
-│   └── pack.mjs         # 跨平台打包（npm pack → dist/）
+│   ├── pack.mjs         # 跨平台打包（npm pack → dist/）
+│   └── verify-settings-schema.mjs # 拿真实 schemastery 复核设置链（§4.2）
 └── test/
     ├── *.test.js        # node:test
     └── fixtures/        # 假的 repo 结构，供测试与手工验证
 ```
 
-Host half 就是 `index.js`。本插件**没有 Client half**：GUI 里看到的那条注入行是既有客户端
-对 `source.form` 的既有渲染，不需要我们注册任何 UI；技能目录同理。
+Host half 是 `index.js`；Client half 只有一张设置卡片（`lib/client.js`，§2.3）。
+GUI 里看到的那条注入行是既有客户端对 `source.form` 的既有渲染，不需要我们注册任何 UI；
+技能目录同理。
 
 ## 2. 本地开发与检查
 
@@ -57,6 +61,8 @@ node --check index.js
 node --check lib/discover.js
 node --check lib/frontmatter.js
 node --check lib/glob.js
+node --check lib/settings.js
+node --check lib/client.js
 node --check scripts/pack.mjs
 node --check scripts/release-notes.mjs
 npm test          # node --test test/
@@ -64,21 +70,30 @@ npm test          # node --test test/
 
 > [!NOTE]
 > 受限沙箱里 `node --test` 的并行 runner 会 spawn 子进程并被 pipe 限制挡住（EPERM）。
-> 那种环境下逐个文件直接跑即可，四个测试文件都支持单独执行：
+> 那种环境下逐个文件直接跑即可，六个测试文件都支持单独执行：
 > `node test/glob.test.js`、`node test/frontmatter.test.js`、`node test/discover.test.js`、
-> `node test/index.test.js`。
+> `node test/index.test.js`、`node test/settings.test.js`、`node test/client.test.js`。
 
 ### 2.1 测试用什么驱动
 
 `test/index.test.js` **不需要 DSH**：它对着一个假的 Cordis 上下文驱动**真实的插件对象** ——
 按真实语义跑 `agent/pre-step` 瀑布（含 `next()` 链）、真实的 skill provider、真实的
-`fs/observed` 监听器。所以绝大多数行为 clone 之后立刻可验证。
+`fs/observed` 监听器。所以绝大多数行为 clone 之后立刻可验证。它还带一条端到端：把设置服务
+给的值换掉之后，`paths` 真的出现在下一次注入与技能目录里（`mount(..., { settings: true })`
+提供的是一个假 `settings` 服务，schema loader 由 `apply` 的 `options.loadSchema` 注入 ——
+真实 loader 需要 DSH 安装，见 §4.2）。
+
+`test/settings.test.js` 把 schema loader 注入进去，所以它能在没有 `@deepseek-ai/schemastery`
+的 checkout 里钉住命名空间的接线；`test/client.test.js` **跑的是真实的 `lib/client.js`** ——
+它按客户端模块系统的方式执行那个 bundle（假的 `window.__ModuleLoader__`、假的 `require`、
+一个 React 替身），再驱动 `apply(ctx)` 与卡片组件，包括暂存、保存（revision 与回读确认）、
+只读态与样式安装/卸载。
 
 每次改行为，先问「这条能被 `node --test` 钉住吗」。不能的部分才留给人眼验证（§2.2）。
 
 ### 2.2 端到端验证（可选）
 
-三条接缝都可以用动态 Cordis 插件在真实会话里探针验证，不必改仓库代码：
+三条 host 接缝都可以用动态 Cordis 插件在真实会话里探针验证，不必改仓库代码：
 
 1. `agent/pre-step` —— 注册一个监听器，注入一条带
    `source = { kind: 'plugin', plugin: 'probe', form: 'instructions' }` 的消息，
@@ -90,32 +105,64 @@ npm test          # node --test test/
 
 `cordis-plugin-development` skill 里有完整流程。
 
+### 2.3 设置卡片怎么验证
+
+卡片只有在**装好的 profile 里、DSH 重启之后**才会出现，所以它没有 §2.1 之外的自动化路径：
+
+1. `npm run pack`，再 `dsh plugin --profile <p> add ./dist/dsh-import-vscode-ai-files-<v>.tgz`，
+   然后**重启 DSH**（profile patch 层不热重载）。
+2. 打开 **设置 → 插件 → 插件配置**，确认本插件那张卡片出现，标题与「导入其他位置的 AI 文件」
+   一致 —— 出现本身就说明四件事同时成立：host 注册了 namespace、`dsh.client` 被扫描到、
+   bundle 被 `/plugins` 提供、卡片的 slot key 与 namespace 相同。
+3. 加一个真实存在的共享目录、保存，然后确认两件事：`$DSH_HOME/settings.yaml` 里出现
+   `import-vscode-ai-files:` 小节；新会话的「指令注入」行里出现该目录下的指令
+   （标题是绝对路径）。
+4. 改「放弃」应清掉用户覆盖，值回到 `cordis.patch.yml`。
+5. 未实测清单见 §4.2——**做完这几步就把对应条目划掉**。
+
 ## 3. 依赖面与兼容性
 
-### 3.1 零 npm 依赖
+### 3.1 加载期零依赖
 
-`dependencies` 与 `peerDependencies` 都为空，唯一的 import 是 `node:crypto`、`node:fs`、
+`dependencies` 与 `peerDependencies` 都为空，加载期的 import 只有 `node:crypto`、`node:fs`、
 `node:path`。
 
 这不是洁癖：**profile 本地插件向上找不到 harness 自己的 `node_modules`**，
 所以 `lib/frontmatter.js` 与 `lib/glob.js` 只能自己写，也不能 import 任何 `@deepseek-ai/*`。
 这条约束直接决定了 §3.2 的形态。
 
-### 3.2 对 DSH 的依赖是 3 个接缝 + 2 处内部契约
+唯一的例外是 `@deepseek-ai/schemastery`（设置 schema 必须是真的 schemastery，见 §4.2），
+它以**惰性动态 import** 的方式使用：`index.js` 里只有 `import('@deepseek-ai/schemastery')`
+一处，且只在 `settings` 服务存在时才会执行。所以 clone 下来没有 `node_modules` 也能
+`npm run check`；反过来，某个 profile 解析不到它时，丢的是设置卡片，不是整个插件
+（`attachSettings` 的 catch 会打一条 `console.error`）。
+
+`lib/settings.js` 因此不 import 任何东西：`z` 由调用方传入，所以 schema 的形状能离线测试。
+
+### 3.2 对 DSH 的依赖是 5 个接缝 + 3 处内部契约
 
 | 用途 | 接缝 |
 | --- | --- |
 | 注入 instructions | `ctx.on('agent/pre-step', …)` |
 | 注册 skills | `ctx.skills.registerProvider(create)` |
 | 已触及文件 + 目录失效 | `ctx.on('fs/observed', …)` |
+| 设置命名空间（可选服务） | `ctx.inject(['settings'], …)` → `settings.installSection(…)` |
+| 设置卡片（browser half） | `ctx.settingsScope.bind({ namespace })`、`ctx.slots.register({ name: 'settings.plugin.item', key })`、`ctx.locale.register` |
 
-接缝之外还有两处**内部契约**（详见 [doc/design.md §3.2](./doc/design.md)）：
-注入消息的四个字段，以及 pre-step decision 的形状。它们整个包在 try/catch 里 ——
-形状变了只记一条 `console.error` 并跳过注入，不会弄坏整个 turn。
+接缝之外还有三处**内部契约**：
+
+1. 注入消息的四个字段（详见 [doc/design.md §3.2](./doc/design.md)）；
+2. pre-step decision 的形状；
+3. `settings.plugin.item` 的 slot key **就是设置命名空间**（[doc/design.md §3.8](./doc/design.md)）。
+
+前两处整个包在 try/catch 里 —— 形状变了只记一条 `console.error` 并跳过注入，不会弄坏整个
+turn。第三处没有 try/catch 可包：key 与 namespace 不一致时卡片**安静地不渲染**，所以两半
+各自被测试钉住（`test/settings.test.js` / `test/client.test.js`），并由
+`npm run verify:settings` 直接比对两个字符串（§4.2）。
 
 ### 3.3 版本要求
 
-没有可声明的 npm 下界（不 import 任何 DSH 包），兼容性由 §3.2 的清单决定。
+没有可声明的 npm 下界（加载期不 import 任何 DSH 包），兼容性由 §3.2 的清单决定。
 **实测环境：DSH Desktop 2.0.11 / dsh `0.1.5-rc.2`**（与 `dsh-approval-mode` 相同）。
 
 ## 4. 兼容性校验怎么做
@@ -123,21 +170,61 @@ npm test          # node --test test/
 升级 DSH 之后，按顺序查：
 
 1. `dsh --profile <profile> --dump-config` 里还有没有 `dsh-import-vscode-ai-files` 行。
-2. 三个接缝还在不在 —— 用 `cordis_inspect_query` 查 `Event.listEvents` 与
-   `Service.listService`。
+2. 五个接缝还在不在 —— 用 `cordis_inspect_query` 查 `Event.listEvents` 与
+   `Service.listService`（`settings`、`skills`），以及客户端的 `Slots.listSubTree`
+   （`settings.plugin.item` / `settings.plugins.tab` 是否仍由「插件配置」标签页声明）。
 3. 注入消息的四个字段（`id` / `role` / `content` / `source`）与 pre-step decision 的形状
    （`await next()` 之后返回 `{ …decision, messages }`）—— 对照
    `@deepseek-ai/dsh-llm/lib/types/message.js` 的 `createUserMessage`。
 4. 客户端标题：`dsh-client-ui-trajectory` / `dsh-client-ui-chat` 的 `contextProvenance`
    与 `KNOWN_FORMS` 决定显示成「指令注入」还是「状态快照」。
 5. `agent.session.header.cwd` 或 `actor.agent` 还在不在。
-6. 先跑 `npm run check` 排除自己的逻辑回归。
+6. 设置这条链：`dsh-settings` 的 `installSection` 签名与 `hooks`（`setSource` / `onChange`）、
+   `dsh-client-ui-settings` 的 `bind(spec)` 与 scope 方法、`dsh-client-modules` 对
+   `dsh.client`（`platform` / `exports['./client']`）的解析规则。这三处是本插件唯一
+   「跟着上游内部形状走」的地方。
+7. 先跑 `npm run check` 排除自己的逻辑回归。
 
 ### 4.1 校验记录
 
 | 日期 | DSH | 结论 |
 | --- | --- | --- |
 | 2026-09-18 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 三个接缝与两处内部契约逐条实测通过；端到端验证见 CHANGELOG `0.1.0` 的「验证」小节 |
+| 2026-09-21 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 设置与卡片这条链**读实现**核对：`installSection` 签名与 hooks、namespace 文法、schema 必须可被浏览器重建、卡片按 namespace 派发、`dsh.client` 的解析与 bundle 缺失时的失败方式、客户端 scope 的 `bind`/`mutate` 形状；另确认本机挂载了 `dsh-settings-file` 且 `$DSH_HOME/settings.yaml` 可写 |
+
+### 4.2 设置链：`npm run verify:settings`
+
+`test/settings.test.js` 用替身钉住接线，但没有 `@deepseek-ai/schemastery` 就无法回答那个真正
+致命的问题：host 注册的 schema，**浏览器能不能重建**？客户端是按 `new Schema(serialized)`
+从 `toJSON()` 的信封重建的；重建失败时该 namespace 拿不到任何可编辑值，而且**一声不吭**。
+
+`scripts/verify-settings-schema.mjs` 就是拿真实的 schemastery 把这条链走一遍：解析组合配置
+（默认值、用户层）、拒绝卡片不该接受的写入、`toJSON()` 序列化、再从信封重建并校验，
+最后比对两半硬编码的 namespace 是否是同一个字符串。它在找不到 schemastery 时**跳过并退 0**
+（所以不进 `npm run check`），找得到就**认真失败**：
+
+```sh
+npm run verify:settings
+# 或指定一个具体的 schemastery：
+node scripts/verify-settings-schema.mjs --schemastery <specifier-or-path>
+```
+
+2026-09-21 在本机 DSH Desktop 2.0.11 上 9/9 通过。
+
+### 4.3 还没实测的部分（做完请划掉）
+
+这些是本轮**没有**在运行中的 DSH 里跑过的，代码按实现写，但没到「看见它工作」的程度：
+
+- [ ] 卡片真的出现在 **设置 → 插件 → 插件配置** 里（要重装插件 + 重启 DSH，见 §2.3）。
+- [ ] 保存后 `$DSH_HOME/settings.yaml` 里出现 `import-vscode-ai-files:` 小节，
+      且下一个模型步骤开始生效。
+- [ ] 「放弃」清掉用户覆盖、值回到组合配置。
+- [ ] `ctx.settings.installSection` 在 provider 卸载/重挂时的行为（`register` 对重复
+      namespace 会抛错，上游没有文档说明它是否在两者之间 dispose）。
+
+§2.3 的手工流程覆盖前三条；最后一条只有升级 DSH 或改动设置这条链时才需要重新确认。
+`npm run verify:settings`（§4.2）已经覆盖了「浏览器能不能重建 schema」这条 —— 它此前也在
+这份清单里，现在有命令可跑，就不再是「未实测」。
 
 ## 5. 打包与发版
 
@@ -168,6 +255,19 @@ tarball。
   `.github` 变更都要让它失效，而不只是当前会话 cwd 下的。
 - **`disable-model-invocation: true` 会让技能不进目录**。这是既定语义，不是插件 bug；
   想让模型看到就不要写这一行（或写 `false`）。
+- **卡片的 slot key 必须等于设置命名空间**。`settings.plugin.item` 是按 namespace 派发的：
+  key 写错不会报错，卡片只是永远不出现。host 侧的 `SETTINGS_NAMESPACE`（`index.js`）与
+  browser 侧的 `NAMESPACE`（`lib/client.js`）是同一个字符串的两份硬编码，改一个必须改另一个。
+- **设置 schema 不能自己写一个「形状像」的对象**。服务本身不检查 schema 的形状，所以手写的
+  能通过 host；但浏览器要靠 `schema.toJSON()` 的 `{ uid, refs }` 信封把它重建出来渲染表单，
+  重建失败时该 namespace **没有可编辑值**（`decode` 返回 undefined，卡片只能渲染空态），
+  而且没有任何报错。这就是 `@deepseek-ai/schemastery` 必须以真身出现的原因。
+- **`dsh.client` 声明了就必须有 bundle**。宿主扫描已启用的 Loader 条目并解析
+  `exports['./client']`；文件缺失会让客户端激活**大声失败**（不是静默降级）。
+  改 `package.json` 的 `exports` 时注意别把 `./client` 弄丢。
+- **设置写入是带 revision 的**。卡片提交时带草稿开始那一刻的 revision，被并发改动抢先会被
+  拒绝 —— 这是设计（`expectedRevision`），不是失败重试的重试。改卡片时不要图省事改成
+  「不带 revision 的 `set`」，那会静默覆盖别人的改动。
 - **Windows 上 git push 可能需要 TLS 兜底**。schannel 在某些环境取不到凭证
   （`SEC_E_NO_CREDENTIALS`，`curl.exe` 同样失败），换 OpenSSL 后端 + 从系统证书库导出的
   CA 即可：`git -c http.sslBackend=openssl -c http.sslCAInfo=<ca.pem> push`。
