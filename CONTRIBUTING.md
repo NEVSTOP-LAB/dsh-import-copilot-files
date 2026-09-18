@@ -65,6 +65,7 @@ node --check lib/settings.js
 node --check lib/client.js
 node --check scripts/pack.mjs
 node --check scripts/release-notes.mjs
+node --check scripts/verify-settings-schema.mjs
 npm test          # node --test test/
 ```
 
@@ -117,7 +118,8 @@ npm test          # node --test test/
 3. 加一个真实存在的共享目录、保存，然后确认两件事：`$DSH_HOME/settings.yaml` 里出现
    `import-vscode-ai-files:` 小节；新会话的「指令注入」行里出现该目录下的指令
    （标题是绝对路径）。
-4. 改「放弃」应清掉用户覆盖，值回到 `cordis.patch.yml`。
+4. 「恢复默认」（字段被覆盖时才出现）应清掉用户覆盖，值回到 `cordis.patch.yml`；
+   「放弃」只应丢弃未保存的草稿，不动已存储的值。
 5. 未实测清单见 §4.2——**做完这几步就把对应条目划掉**。
 
 ## 3. 依赖面与兼容性
@@ -127,15 +129,17 @@ npm test          # node --test test/
 `dependencies` 与 `peerDependencies` 都为空，加载期的 import 只有 `node:crypto`、`node:fs`、
 `node:path`。
 
-这不是洁癖：**profile 本地插件向上找不到 harness 自己的 `node_modules`**，
-所以 `lib/frontmatter.js` 与 `lib/glob.js` 只能自己写，也不能 import 任何 `@deepseek-ai/*`。
-这条约束直接决定了 §3.2 的形态。
+这不是洁癖：**不能假定 `@deepseek-ai/*` 一定解析得到**。插件的宿主半侧跑在 harness 进程里，
+但模块解析走的是 **profile 的 `node_modules`**，而那条路径是部署给的、不保证有什么 ——
+所以 `lib/frontmatter.js` 与 `lib/glob.js` 只能自己写。这条约束直接决定了 §3.2 的形态。
 
 唯一的例外是 `@deepseek-ai/schemastery`（设置 schema 必须是真的 schemastery，见 §4.2），
-它以**惰性动态 import** 的方式使用：`index.js` 里只有 `import('@deepseek-ai/schemastery')`
-一处，且只在 `settings` 服务存在时才会执行。所以 clone 下来没有 `node_modules` 也能
-`npm run check`；反过来，某个 profile 解析不到它时，丢的是设置卡片，不是整个插件
-（`attachSettings` 的 catch 会打一条 `console.error`）。
+它由 DSH 的包带进 profile 共享的 `node_modules`，实测可解析：以**装好的**插件路径为基准
+`createRequire('…/profiles/<p>/node_modules/dsh-import-vscode-ai-files/lib/index.js').resolve('@deepseek-ai/schemastery')`
+解析到 Desktop 自带的那份副本。即便如此也只用**惰性动态 import**：`index.js` 里只有
+`import('@deepseek-ai/schemastery')` 一处，且只在 `settings` 服务存在时才执行。所以 clone
+下来没有 `node_modules` 也能 `npm run check`；反过来，某个 profile 真的解析不到它时，丢的是
+设置卡片，不是整个插件（`attachSettings` 的 catch 会打一条 `console.error`）。
 
 `lib/settings.js` 因此不 import 任何东西：`z` 由调用方传入，所以 schema 的形状能离线测试。
 
@@ -218,7 +222,7 @@ node scripts/verify-settings-schema.mjs --schemastery <specifier-or-path>
 - [ ] 卡片真的出现在 **设置 → 插件 → 插件配置** 里（要重装插件 + 重启 DSH，见 §2.3）。
 - [ ] 保存后 `$DSH_HOME/settings.yaml` 里出现 `import-vscode-ai-files:` 小节，
       且下一个模型步骤开始生效。
-- [ ] 「放弃」清掉用户覆盖、值回到组合配置。
+- [ ] 「恢复默认」清掉用户覆盖、值回到组合配置（「放弃」只丢弃草稿）。
 - [ ] `ctx.settings.installSection` 在 provider 卸载/重挂时的行为（`register` 对重复
       namespace 会抛错，上游没有文档说明它是否在两者之间 dispose）。
 

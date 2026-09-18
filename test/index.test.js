@@ -103,10 +103,12 @@ function mount(cwd = WORKSPACE, config = {}, options = {}) {
     },
     invalidations: () => invalidations,
     settingsInstalls,
-    /** Publish a settings value the way the settings service's source thunk does. */
+    /** Publish a settings value the way the settings service does: source, then change. */
     setSettings(value) {
       assert.equal(settingsInstalls.length, 1, 'the settings namespace must be installed first')
-      settingsInstalls[0].hooks.setSource(() => value)
+      const hooks = settingsInstalls[0].hooks
+      hooks.setSource(() => value)
+      hooks.onChange()
     },
   }
 }
@@ -400,6 +402,17 @@ test('the settings section also drives the skill catalog', async () => {
   session.setSettings({ paths: [SHARED] })
   const names = (await session.list({ cwd: WORKSPACE })).map((skill) => skill.name)
   assert.ok(names.includes('shared-skill'))
+})
+
+test('a committed settings change invalidates the skill catalog', async () => {
+  // Nothing the settings service does touches the filesystem, so no
+  // `fs/observed` signal arrives to refresh the catalog: if this hook is not
+  // wired, a saved path can add skills the model never learns about.
+  const session = mount(WORKSPACE, {}, { settings: true, loadSchema: fakeSchema })
+  await flush()
+  const before = session.invalidations()
+  session.setSettings({ paths: [SHARED] })
+  assert.equal(session.invalidations(), before + 1)
 })
 
 test('a namespace that cannot be installed leaves the composition config in charge', async () => {

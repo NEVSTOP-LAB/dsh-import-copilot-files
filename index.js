@@ -97,14 +97,6 @@ export default {
     let readSettings = () => config
     const settings = () => normalizeSettings(readSettings())
 
-    attachSettings(ctx, {
-      entry: config,
-      onSource: (next) => {
-        readSettings = next
-      },
-      loadSchema: options?.loadSchema,
-    })
-
     /**
      * Per-session state, keyed by session id:
      * `{ cwd, touched, injectedText, injectedPaths }`.
@@ -112,6 +104,18 @@ export default {
     const sessions = new Map()
     let invalidateCatalog = null
     const loggedWarnings = new Set()
+
+    attachSettings(ctx, {
+      entry: config,
+      onSource: (next) => {
+        readSettings = next
+      },
+      // A committed change can add or remove skills, and nothing it did touched
+      // the filesystem — so no `fs/observed` signal will arrive to refresh the
+      // catalog. `paths` is exactly that kind of change.
+      onChange: () => invalidateCatalog?.(),
+      loadSchema: options?.loadSchema,
+    })
 
     const sessionFor = (id, cwd) => {
       let session = sessions.get(id)
@@ -258,9 +262,13 @@ function deepFreeze(value) {
  * @param ctx - the host context the row was composed into.
  * @param options.entry - the composition config, used as the `base` layer.
  * @param options.onSource - receives the live settings getter.
+ * @param options.onChange - called after every committed settings change.
  * @param options.loadSchema - schema loader; tests replace it.
  */
-export function attachSettings(ctx, { entry, onSource, loadSchema = defaultSchemaLoader }) {
+export function attachSettings(
+  ctx,
+  { entry, onSource, onChange, loadSchema = defaultSchemaLoader },
+) {
   // A context outside the real loader (a test double) simply has no settings.
   if (typeof ctx.inject !== 'function') return
 
@@ -276,9 +284,7 @@ export function attachSettings(ctx, { entry, onSource, loadSchema = defaultSchem
         if (disposed) return
         settingsCtx.settings.installSection(ctx, SETTINGS_NAMESPACE, schema, entry, {
           setSource: (current) => onSource(current),
-          // Discovery re-reads the settings on every step, so a committed change
-          // needs nothing here: the next step already sees it.
-          onChange: () => {},
+          onChange: () => onChange?.(),
         })
       })
       .catch((error) => {

@@ -47,8 +47,10 @@ preset 平面看起来更"就近"（一次会话一实例），但**走不通**�
 `.github/instructions/` 内部递归到深度 4。
 
 `paths` 里的每个路径**按完全相同的 walk 再扫一遍**（它自己 + 同样层数），所以「工作区外的共享
-规则」不需要第二套代码路径。路径相对 cwd 解析；重复的根（含本来就落在 cwd 下的）只扫一次；
-不存在的路径贡献为空——发现是「读盘上有什么」，不是报错。
+规则」不需要第二套代码路径。路径相对 cwd 解析；不存在的路径贡献为空——发现是「读盘上有什么」，
+不是报错。**已经访问过的目录不会被走第二遍**：第二遍会拿到一整层全新的下探预算，从而多扫出
+一层本来不该有的目录（点名 cwd 的直接子目录就会把它的子目录也拉进来）。反过来，比 cwd 预算
+更深、但被 `paths` 点名的路径仍会被扫——点名就是请求。
 
 这样 `D:\NEVSTOP-LAB` 这类「多 repo 工作文件夹」就成立，且各 repo 互不干扰。
 **刻意不向上找祖先链** —— 这与 DSH 原生 `dsh-agent-instructions` 的语义不同
@@ -172,7 +174,13 @@ browser: ctx.settingsScope.bind({ namespace: ns })
 
 卡片只改 `paths`，其余字段仍只在组合配置里。写入走客户端 settings scope：
 保存时带**草稿开始那一刻的 revision**，被并发改动抢先就拒绝而不是覆盖；保存成功后**回读**
-宿主给的值确认，而不是假定写入成功。落点是 DSH 自己的用户设置文档，工作区文件一个不写。
+宿主给的值确认，而不是假定写入成功。「放弃」只丢弃未保存的草稿；要清掉**已存储**的用户覆盖
+是「恢复默认」的事（`unset`，字段确实被覆盖时才出现），清完值重新继承组合配置。
+落点是 DSH 自己的用户设置文档，工作区文件一个不写。
+
+提交后的变更还会调用 `control.invalidate()` 让**技能目录**失效。设置写入不碰文件系统，
+`fs/observed` 不会给它任何信号，不接线的话保存了新路径也要等到下一次无关的文件观察才生效 ——
+这条是评审发现的，`test/index.test.js` 里钉住。
 
 仓库内的 bundle 是**手写的 lazy-CJS**（`window.__ModuleLoader__.load({ id, factory })`），
 不引入任何构建步骤——与 dsh-git-rollback 这类第三方插件的做法一致。
@@ -212,7 +220,7 @@ browser: ctx.settingsScope.bind({ namespace: ns })
 
 ### 5.3 离线
 
-`npm run check`：8 个文件的 `node --check` + 91 项 `node:test`。
+`npm run check`：9 个文件的 `node --check` + 96 项 `node:test`。
 `test/index.test.js` 对着假 Cordis 上下文驱动真实插件对象，覆盖注入顺序、跨会话隔离、
 预算边界、`applyTo` 正反例、移除通知、`paths`，以及**设置服务 → 发现流程**这条端到端链路
 （含 schema 装载失败时回落到组合配置）；`test/settings.test.js` 用注入的 schema loader 钉住

@@ -27,7 +27,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { SETTINGS_NAMESPACE } from '../index.js'
 import { settingsSchema } from '../lib/settings.js'
@@ -50,16 +50,40 @@ function arg(name) {
 }
 
 /**
+ * A `--schemastery` value as something `import()` can take.
+ *
+ * A relative path is a path, not a package: `import('./x.mjs')` written here
+ * would resolve against THIS file's directory, so it is turned into a file URL
+ * rooted at the caller's working directory. Anything that is neither absolute
+ * nor explicitly relative (`./`, `../`) is left alone as a package specifier.
+ *
+ * @param value - the raw argument.
+ * @returns a file URL for a path, or the specifier unchanged.
+ */
+function toSpecifier(value) {
+  if (isAbsolute(value)) return pathToFileURL(value).href
+  if (value.startsWith('./') || value.startsWith('../') || value === '.' || value === '..') {
+    return pathToFileURL(resolve(process.cwd(), value)).href
+  }
+  return value
+}
+
+/**
  * Where to load schemastery from: an explicit argument first, then the
  * environment, then a plain `import`, then the DSH Desktop install.
  *
- * @returns a specifier or file URL, or `null` when nothing is available.
+ * Only a candidate that is genuinely ABSENT is skipped. A package that is
+ * present but broken — a syntax error, a missing transitive module — throws,
+ * because reporting "skipped, exit 0" there would be a green light over a real
+ * failure.
+ *
+ * @returns `{ module, from }`, or `{ module: null, tried }` when nothing was found.
  */
 async function resolveSchemastery() {
   const explicit = arg('schemastery') ?? process.env.DSH_SCHEMASTERY
   const candidates = []
   if (explicit !== undefined && explicit !== '') {
-    candidates.push(isAbsolute(explicit) ? pathToFileURL(explicit).href : explicit)
+    candidates.push(toSpecifier(explicit))
   } else {
     candidates.push(PACKAGE)
     const localAppData = process.env.LOCALAPPDATA
@@ -84,8 +108,11 @@ async function resolveSchemastery() {
   for (const candidate of candidates) {
     try {
       return { module: await import(candidate), from: candidate }
-    } catch {
-      // Try the next one; the report names what was tried.
+    } catch (error) {
+      if (error?.code !== 'ERR_MODULE_NOT_FOUND') {
+        throw new Error(`cannot load ${candidate}: ${error.message}`, { cause: error })
+      }
+      // Absent rather than broken: try the next one; the report names what was tried.
     }
   }
   return { module: null, tried: candidates }

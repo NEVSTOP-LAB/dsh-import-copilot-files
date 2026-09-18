@@ -73,13 +73,18 @@ const byText = (tree, tag, text) =>
   nodes(tree).find((node) => node.type === tag && textOf(node) === text)
 
 /** The settings scope face the card consumes. */
-function fakeScope(paths, { writable = true, status = 'ready' } = {}) {
+function fakeScope(paths, { writable = true, status = 'ready', overridden = true } = {}) {
   let value = { paths: [...paths] }
+  // The raw user layer: a field present here is an override of the deployment.
+  let user = overridden ? { paths: [...paths] } : {}
   let revision = 3
   const listeners = new Set()
+  const notify = () => {
+    for (const listener of listeners) listener()
+  }
   return {
     calls: [],
-    getSnapshot: () => ({ status, value, revision, writable, mode: 'host' }),
+    getSnapshot: () => ({ status, value, revision, writable, user, mode: 'host' }),
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -87,10 +92,22 @@ function fakeScope(paths, { writable = true, status = 'ready' } = {}) {
     async mutate(ops, expectedRevision) {
       this.calls.push({ ops, expectedRevision })
       for (const op of ops) {
-        if (op.op === 'set' && op.path[0] === 'paths') value = { ...value, paths: op.value }
+        if (op.op === 'set' && op.path[0] === 'paths') {
+          value = { ...value, paths: op.value }
+          user = { ...user, paths: op.value }
+        }
       }
       revision += 1
-      for (const listener of listeners) listener()
+      notify()
+    },
+    async unset(field) {
+      this.calls.push({ ops: [{ op: 'unset', path: [field] }], expectedRevision: undefined })
+      const next = { ...user }
+      delete next[field]
+      user = next
+      value = { ...value, [field]: [] }
+      revision += 1
+      notify()
     },
   }
 }
@@ -269,6 +286,42 @@ test('a read-only deployment says so and cannot be edited', () => {
   assert.ok(nodes(tree).some((node) => textOf(node) === 'readOnly'))
   assert.equal(nodes(tree).find((node) => node.type === 'input').props.disabled, true)
   assert.equal(byText(tree, 'button', 'add').props.disabled, true)
+})
+
+test('reset clears the user override so the field inherits the deployment again', async () => {
+  // Discard only forgets a draft; the stored override is what makes the value
+  // differ from the composition config, and clearing it is a write of its own.
+  const scope = fakeScope(['D:\\one'])
+  const React = makeReact(() => scope.getSnapshot())
+  const { module } = loadBundle(React)
+  const { ctx, registrations } = fakeCtx(scope)
+  module.apply(ctx)
+  const props = { t: (key) => key, ...registrations[0].options.inject() }
+
+  React.reset()
+  const tree = registrations[0].component(props)
+  const reset = byText(tree, 'button', 'reset')
+  assert.ok(reset, 'an overridden field offers a reset')
+  assert.equal(reset.props.disabled, false)
+  reset.props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+
+  assert.deepEqual(scope.calls[0].ops, [{ op: 'unset', path: ['paths'] }])
+  assert.equal(Object.hasOwn(scope.getSnapshot().user, 'paths'), false)
+})
+
+test('a field the user never overrode offers no reset', () => {
+  const scope = fakeScope(['D:\\one'], { overridden: false })
+  const React = makeReact(() => scope.getSnapshot())
+  const { module } = loadBundle(React)
+  const { ctx, registrations } = fakeCtx(scope)
+  module.apply(ctx)
+  const props = { t: (key) => key, ...registrations[0].options.inject() }
+
+  React.reset()
+  const tree = registrations[0].component(props)
+  assert.equal(byText(tree, 'button', 'reset'), undefined)
+  assert.ok(byText(tree, 'button', 'save'), 'the card itself is still there')
 })
 
 test('the paths field is text in, trimmed and non-empty entries out', () => {

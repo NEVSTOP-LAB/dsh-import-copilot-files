@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -168,6 +170,42 @@ test('a configured path already under the working directory is not scanned twice
   })
   assert.deepEqual(roots, discovered().roots)
   assert.deepEqual(instructions, discovered().instructions)
+})
+
+test('re-listing a scanned root does not hand it a fresh depth budget', () => {
+  // The reported bug: `child-repo` was already reached at depth 1, but naming it
+  // in `paths` walked it again with a full budget of its own and picked up its
+  // grandchild — one level deeper than the cwd rule reaches.
+  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  try {
+    const child = join(root, 'child')
+    const grandchild = join(child, 'grandchild')
+    mkdirSync(join(grandchild, '.github'), { recursive: true })
+    writeFileSync(join(grandchild, '.github', 'copilot-instructions.md'), 'GRANDCHILD-RULE')
+
+    const { roots, instructions } = discover({ cwd: root, scanSubdirectories: 1, paths: [child] })
+    assert.deepEqual(roots, [root, child])
+    assert.equal(instructions.some((entry) => entry.content.includes('GRANDCHILD-RULE')), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a configured path deeper than the cwd budget is still scanned', () => {
+  // The other half of the rule: naming it is the request, so the visit budget is
+  // what limits the cwd walk, not the configured root.
+  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  try {
+    const deep = join(root, 'a', 'b')
+    mkdirSync(join(deep, '.github'), { recursive: true })
+    writeFileSync(join(deep, '.github', 'copilot-instructions.md'), 'DEEP-RULE')
+
+    const { roots, instructions } = discover({ cwd: root, scanSubdirectories: 0, paths: [deep] })
+    assert.deepEqual(roots, [root, deep])
+    assert.ok(instructions.some((entry) => entry.content.includes('DEEP-RULE')))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('paths that are not usable strings are ignored', () => {

@@ -43,10 +43,13 @@ chain is deliberately not walked, and neither are deeper levels.
 
 Each entry in `paths` is scanned by **exactly the same rule** — the path itself, then the same
 number of levels below it. So "one shared set of rules outside every workspace" is a folder name
-in `paths`. Paths may be absolute or relative to the session cwd; a path that does not exist, is
-listed twice, or already sits under the cwd adds nothing and breaks nothing. Instructions reached
-through `paths` are labelled with their **absolute** path (`..\..` chains say less), and `applyTo`
-still matches relative to each file's own project root.
+in `paths`. Paths may be absolute or relative to the session cwd, and a path that does not exist
+contributes nothing rather than failing. Naming a directory the scan already reached does not walk
+it a second time — a second visit would get a fresh depth budget and pull in one level the rule
+does not allow; conversely, a path deeper than the cwd budget IS scanned when it is named, because
+naming it is the request. Instructions reached through `paths` are labelled with their **absolute**
+path (`..\..` chains say less), and `applyTo` still matches relative to each file's own project
+root.
 
 ## What you see in a session
 
@@ -76,7 +79,7 @@ The plugin row lives in [`cordis.patch.yml`](./cordis.patch.yml); its `config` f
 
 `paths` is also a field of the plugin's settings namespace (`import-vscode-ai-files`), so the
 card for this plugin appears under **Settings → Plugins → plugin configuration**: add, edit and
-remove paths, then save or discard.
+remove paths, then save, discard, or reset to the deployment default.
 
 - The card edits `paths` only; `maxBytes`, `scanSubdirectories`, `instructionDirs` and
   `skillDirs` stay composition-only.
@@ -85,8 +88,9 @@ remove paths, then save or discard.
 - Saving is **optimistic**: the card submits with the revision its draft started from, so a
   concurrent edit elsewhere is rejected with a retry prompt instead of being overwritten. After a
   save the card re-reads what the host answered rather than assuming the write landed.
-- The composition `config` is this layer's **base**: discarding clears the user override and the
-  value falls back to `cordis.patch.yml`.
+- The composition `config` is this layer's **base**: *Discard* only forgets unsaved edits, while
+  *Reset* (offered once the field is overridden) clears the user override, so the value falls back
+  to `cordis.patch.yml`.
 - Where no settings service is mounted (rare), the plugin runs on the composition config alone —
   it just has no card.
 
