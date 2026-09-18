@@ -166,9 +166,11 @@ export default {
           : resolve(session.cwd, display)
       if (absolute === null) return
       if (session.touched.size < TOUCHED_LIMIT) session.touched.add(absolute)
-      if (session.cwd !== null && absolute.startsWith(session.cwd) && normalize(absolute).includes(GITHUB_SEGMENT)) {
-        invalidateCatalog?.()
-      }
+      // One provider serves every workspace, so its catalog must be invalidated
+      // by a `.github` change anywhere — not only under this session's own cwd.
+      // Binding this to `session.cwd` left a skill edited in workspace B stale
+      // for a session sitting in workspace A.
+      if (normalize(absolute).includes(GITHUB_SEGMENT)) invalidateCatalog?.()
     })
   },
 }

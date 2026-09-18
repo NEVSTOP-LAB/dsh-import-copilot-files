@@ -257,6 +257,15 @@ test('an observed file outside .github does not invalidate the catalog', async (
   assert.equal(session.invalidations(), 0)
 })
 
+test('a .github change outside this session s cwd still invalidates the catalog', async () => {
+  // The provider serves every workspace, so a skill edited in another one must
+  // not stay stale here.
+  const session = mount()
+  await session.render()
+  session.observe('D:\\other-workspace\\.github\\skills\\x\\SKILL.md')
+  assert.equal(session.invalidations(), 1)
+})
+
 test('a tight budget truncates and says what it dropped', async () => {
   const rendered = await mount(WORKSPACE, { maxBytes: 460 }).render()
   assert.match(rendered, /\[truncated\]|omitted by the 460-byte budget/)
