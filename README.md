@@ -94,6 +94,12 @@ pwsh -File install.ps1 -Uninstall      # 移除
 2. **pre-step decision 的形状**：监听器收到 `{ agent, messages, step, signal }`，
    必须 `await next()`，再返回 `{ …decision, messages }`。
 
+**注入顺序（别改回去）**：`agent/pre-step` 是 waterfall，而所有注入监听器都插在
+**同一个位置**（已领取消息之后），所以**谁最后跑谁占前面**。本行在 host 平面、
+先于 preset 挂载注册，若用"插在已领取消息之后"就会把 `.github` 规则排到 AGENTS.md
+**前面**。因此这里改成**追加到末尾**，顺序与注册顺序无关：
+AGENTS.md 在前，`.github` 规则在后。
+
 没有 watcher，没有持久化，没有别的内部字段。
 
 ### 3. 会话状态按 session id 分桶
