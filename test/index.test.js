@@ -17,7 +17,7 @@ const WORKSPACE = fileURLToPath(new URL('../fixtures/workspace', import.meta.url
 const agentFor = (id, cwd = WORKSPACE) => ({ id, session: { header: { cwd } } })
 
 /** A minimal stand-in for the host context this row is composed into. */
-function mount(cwd = WORKSPACE) {
+function mount(cwd = WORKSPACE, config = {}) {
   const listeners = new Map()
   const agent = agentFor('session-a', cwd)
   let invalidations = 0
@@ -43,7 +43,7 @@ function mount(cwd = WORKSPACE) {
     },
   }
 
-  plugin.apply(ctx, {})
+  plugin.apply(ctx, config)
 
   const emit = (path, actor) => {
     for (const listener of listeners.get('fs/observed') ?? []) {
@@ -190,4 +190,34 @@ test('an observed file outside .github does not invalidate the catalog', () => {
   session.render()
   session.observe(join(WORKSPACE, 'src', 'a.ts'))
   assert.equal(session.invalidations(), 0)
+})
+
+test('a tight budget truncates and says what it dropped', () => {
+  const rendered = mount(WORKSPACE, { maxBytes: 460 }).render()
+  assert.match(rendered, /\[truncated\]|omitted by the 460-byte budget/)
+  assert.match(rendered, /Instructions from: \.github\/copilot-instructions\.md/)
+})
+
+test('a render never exceeds the configured budget', () => {
+  // Walks the range where the truncation and omission paths take over.
+  for (const maxBytes of [300, 400, 460, 520, 700, 1000, 4096]) {
+    const rendered = mount(WORKSPACE, { maxBytes }).render()
+    assert.ok(
+      rendered.length <= maxBytes,
+      `maxBytes=${maxBytes} produced ${rendered.length} characters`,
+    )
+  }
+})
+
+test('a budget too small for even one block renders nothing', () => {
+  assert.equal(mount(WORKSPACE, { maxBytes: 200 }).render(), '')
+})
+
+test('an observation that matches no applyTo pattern activates nothing extra', () => {
+  const session = mount()
+  session.observe(join(WORKSPACE, 'notes.md'))
+  const rendered = session.render()
+  assert.match(rendered, /Always-on rule/)
+  assert.doesNotMatch(rendered, /TypeScript rule/)
+  assert.doesNotMatch(rendered, /PowerShell scripts under `src\/`/)
 })

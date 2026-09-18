@@ -43,6 +43,9 @@ const DEFAULT_MAX_BYTES = 65536
 const TOUCHED_LIMIT = 2048
 const SESSION_LIMIT = 64
 const MIN_TRUNCATED_BLOCK = 128
+/** Headroom for the "N files omitted" notice, so a render never exceeds the budget. */
+const NOTICE_RESERVE = 128
+const TRUNCATED_SUFFIX = '\n\n[truncated]'
 const MAX_LOGGED_WARNINGS = 200
 const GITHUB_SEGMENT = '/.github/'
 
@@ -170,7 +173,9 @@ function matchesTouched(entry, touched) {
 
 function compose(entries, maxBytes) {
   if (entries.length === 0) return ''
-  const budget = maxBytes - INTRO.length - 2
+  // The notice is appended after the blocks, so its headroom comes off the top:
+  // without that reserve the render can exceed the configured budget.
+  const budget = maxBytes - INTRO.length - 2 - NOTICE_RESERVE
   const blocks = entries.map(renderBlock)
 
   const kept = []
@@ -185,8 +190,8 @@ function compose(entries, maxBytes) {
       continue
     }
     const remaining = budget - used - 2
-    if (remaining >= MIN_TRUNCATED_BLOCK) {
-      kept.push(`${block.slice(0, remaining)}\n\n[truncated]`)
+    if (remaining >= MIN_TRUNCATED_BLOCK + TRUNCATED_SUFFIX.length) {
+      kept.push(`${block.slice(0, remaining - TRUNCATED_SUFFIX.length)}${TRUNCATED_SUFFIX}`)
       dropped = blocks.length - index - 1
     } else {
       dropped = blocks.length - index
