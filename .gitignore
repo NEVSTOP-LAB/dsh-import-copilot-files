@@ -1,10 +1,6 @@
-# Node
 node_modules/
+dist/
+*.tgz
 *.log
-npm-debug.log*
-
-# Editors / OS
-.vscode/
-.idea/
 .DS_Store
-Thumbs.db
+.tmp-npm-cache/

@@ -1,0 +1,43 @@
+{
+  "name": "dsh-import-vscode-ai-files",
+  "version": "0.1.0",
+  "description": "Load a workspace's own VSCode/Copilot AI configuration (.github/copilot-instructions.md, .github/instructions, .github/skills) into every DeepSeek Harness session. DSH 加载 VSCode AI 配置插件。",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "vscode",
+    "copilot",
+    "instructions",
+    "skills",
+    "agent"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md",
+    "doc/",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check index.js && node --check lib/discover.js && node --check lib/frontmatter.js && node --check lib/glob.js && node --check scripts/pack.mjs && node --check scripts/release-notes.mjs && npm test",
+    "pack": "node scripts/pack.mjs"
+  }
+}
