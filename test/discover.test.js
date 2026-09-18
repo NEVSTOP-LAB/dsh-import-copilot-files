@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { basename } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { discover } from '../src/discover.js'
+import { discover } from '../lib/discover.js'
 
-const WORKSPACE = fileURLToPath(new URL('../fixtures/workspace', import.meta.url))
+const WORKSPACE = fileURLToPath(new URL('./fixtures/workspace', import.meta.url))
 
 const discovered = () => discover({ cwd: WORKSPACE, scanSubdirectories: 1 })
 
@@ -66,7 +66,7 @@ test('every root carries its own rootDir for applyTo matching', () => {
   const child = discovered().instructions.find((entry) =>
     entry.displayPath.startsWith('child-repo/'),
   )
-  assert.equal(child.rootDir, fileURLToPath(new URL('../fixtures/workspace/child-repo', import.meta.url)))
+  assert.equal(child.rootDir, fileURLToPath(new URL('./fixtures/workspace/child-repo', import.meta.url)))
 })
 
 test('skills are discovered across roots and sorted by name', () => {

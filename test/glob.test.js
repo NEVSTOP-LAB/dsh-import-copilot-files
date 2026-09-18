@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { globToRegExp, matchesAny, parseApplyTo } from '../src/glob.js'
+import { globToRegExp, matchesAny, parseApplyTo } from '../lib/glob.js'
 
 test('globToRegExp treats ** as any depth', () => {
   assert.equal(globToRegExp('**/*.ts').test('a.ts'), true)

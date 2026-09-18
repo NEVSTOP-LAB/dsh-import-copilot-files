@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseBoolean, parseFrontmatter } from '../src/frontmatter.js'
+import { parseBoolean, parseFrontmatter } from '../lib/frontmatter.js'
 
 test('parseFrontmatter splits data from body', () => {
   const { data, body } = parseFrontmatter('---\napplyTo: "**/*.ts"\n---\n\nBody text.\n')

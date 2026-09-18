@@ -24,18 +24,19 @@
  * session in the process.
  *
  * The injected message is built here rather than with `createUserMessage` from
- * `@deepseek-ai/dsh-llm`: a profile-local plugin cannot reach the harness's own
- * `node_modules`, so the four-field shape is reproduced literally. See the
- * README's upgrade checklist — that shape and the pre-step decision contract are
- * the two internal things this plugin depends on.
+ * `@deepseek-ai/dsh-llm`: a plugin installed into a profile cannot reach the
+ * harness's own `node_modules`, so the four-field shape is reproduced literally.
+ * That shape and the pre-step decision contract are the two internal things this
+ * plugin depends on — doc/design.md §3.2 covers both, and CONTRIBUTING §4 is the
+ * upgrade checklist.
  */
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
-import { discover } from './discover.js'
-import { matchesAny } from './glob.js'
-import { parseFrontmatter } from './frontmatter.js'
+import { discover } from './lib/discover.js'
+import { matchesAny } from './lib/glob.js'
+import { parseFrontmatter } from './lib/frontmatter.js'
 
 export const PLUGIN_NAME = 'import-vscode-ai-files'
 

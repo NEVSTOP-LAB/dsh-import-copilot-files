@@ -12,9 +12,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import plugin from '../src/index.js'
+import plugin from '../index.js'
 
-const WORKSPACE = fileURLToPath(new URL('../fixtures/workspace', import.meta.url))
+const WORKSPACE = fileURLToPath(new URL('./fixtures/workspace', import.meta.url))
 
 const agentFor = (id, cwd = WORKSPACE) => ({ id, session: { header: { cwd } } })
 
