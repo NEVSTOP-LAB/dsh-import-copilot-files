@@ -113,9 +113,15 @@ export default {
         const text = withRemovals(rendered, session)
         if (text === null) return decision
 
-        const claimed = Array.isArray(payload.messages) ? payload.messages : []
-        const lastClaimed = decision.messages.findLastIndex((message) => claimed.includes(message))
-        const entered = decision.messages.toSpliced(lastClaimed + 1, 0, injectionMessage(text))
+        // Append rather than splice after the claimed messages.
+        //
+        // Every injection listener splices at that same index, so whichever one
+        // runs LAST wins the earlier slot. This row is composed on the HOST plane
+        // and therefore registers before any preset mount registers
+        // `dsh-agent-instructions`, which made the `.github` rules land ahead of
+        // AGENTS.md. Appending makes the order independent of registration order:
+        // AGENTS.md first, then this.
+        const entered = [...decision.messages, injectionMessage(text)]
         session.injectedText = rendered.text
         session.injectedPaths = rendered.paths
         return { ...decision, messages: entered }

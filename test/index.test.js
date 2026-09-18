@@ -48,11 +48,15 @@ function mount(cwd = WORKSPACE, config = {}) {
     }
   }
 
-  /** Run the pre-step waterfall once, exactly as the agent loop composes it. */
-  const inject = async (who = agent, claimed = []) => {
+  /**
+   * Run the pre-step waterfall once, exactly as the agent loop composes it.
+   * `folded` stands in for messages a listener further down the chain — the
+   * preset-mounted `dsh-agent-instructions` — already put into the batch.
+   */
+  const inject = async (who = agent, claimed = [], folded = []) => {
     const handlers = listeners.get('agent/pre-step') ?? []
     const payload = { agent: who, messages: claimed, turn: 1, step: 2, signal: undefined }
-    const base = { kind: 'accept', messages: [...claimed] }
+    const base = { kind: 'accept', messages: [...claimed, ...folded] }
     let index = -1
     const next = async () => {
       index += 1
@@ -108,6 +112,26 @@ test('the injection lands after the messages this step already claimed', async (
   assert.equal(decision.messages.length, 2)
   assert.equal(decision.messages[0].id, 'user-1')
   assert.equal(decision.messages[1].source.form, 'instructions')
+})
+
+test('AGENTS.md is injected first and the .github rules follow it', async () => {
+  // `dsh-agent-instructions` splices at the same index this plugin used to, and
+  // whichever listener runs last wins the earlier slot. Appending keeps the order
+  // stable regardless of which plane the two rows were composed on.
+  const session = mount()
+  const claimed = [{ id: 'user-1', role: 'user', content: [{ type: 'text', text: 'hi' }] }]
+  const agentsMd = {
+    id: 'agents-md',
+    role: 'user',
+    content: [{ type: 'text', text: 'Instructions from: AGENTS.md' }],
+    source: { kind: 'agent-instructions', form: 'instructions' },
+  }
+
+  const decision = await session.inject(session.agent, claimed, [agentsMd])
+  assert.deepEqual(
+    decision.messages.map((message) => message.source?.plugin ?? message.id),
+    ['user-1', 'agents-md', 'import-vscode-ai-files'],
+  )
 })
 
 test('renders the always-on instructions for the session cwd', async () => {
