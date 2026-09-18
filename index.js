@@ -19,6 +19,12 @@
  *   `ToolExecution`, which carries `.agent`, so observations are attributed to
  *   the session that made them and never leak across sessions.
  *
+ * A fourth, optional seam publishes the settings namespace behind
+ * `lib/client.js`'s card, which is how the extra `paths` are edited in the GUI's
+ * Plugins page. It is optional twice over: no settings provider means the plugin
+ * simply runs on its composition config, and an unresolvable schemastery means
+ * only the card is missing. `attachSettings` covers both.
+ *
  * Everything a session owns — cwd, the touched-path set, and the last injected
  * rendering — is keyed by session id, because one host instance serves every
  * session in the process.
@@ -26,8 +32,9 @@
  * The injected message is built here rather than with `createUserMessage` from
  * `@deepseek-ai/dsh-llm`: a plugin installed into a profile cannot reach the
  * harness's own `node_modules`, so the four-field shape is reproduced literally.
- * That shape and the pre-step decision contract are the two internal things this
- * plugin depends on — doc/design.md §3.2 covers both, and CONTRIBUTING §4 is the
+ * That shape, the pre-step decision contract, and the settings namespace being
+ * the browser card's slot key are the three internal things this plugin depends
+ * on — doc/design.md §3.2 and §3.8 cover them, and CONTRIBUTING §4 is the
  * upgrade checklist.
  */
 
@@ -41,12 +48,20 @@ import { parseFrontmatter } from './lib/frontmatter.js'
 export const PLUGIN_NAME = 'import-vscode-ai-files'
 
 const PROVIDER_NAME = 'import-vscode-ai-files'
+/**
+ * The runtime settings namespace. It is also the key the browser half registers
+ * its card under in `settings.plugin.item`, so the two must stay identical.
+ */
+export const SETTINGS_NAMESPACE = 'import-vscode-ai-files'
 /** A provider label; not one of the built-in project roots. */
 const SKILL_SOURCE = 'project-vscode'
 /** Between the built-in `project-dsh` (100) and `project-agents` (200) roots. */
 const SKILL_RANK = 150
 
 const DEFAULT_MAX_BYTES = 65536
+const DEFAULT_SCAN_SUBDIRECTORIES = 1
+const DEFAULT_INSTRUCTION_DIRS = ['.github/instructions']
+const DEFAULT_SKILL_DIRS = ['.github/skills']
 const TOUCHED_LIMIT = 2048
 const SESSION_LIMIT = 64
 const MIN_TRUNCATED_BLOCK = 128
@@ -72,15 +87,23 @@ export default {
    * @param config.instructionDirs - root-relative `*.instructions.md` directories.
    * @param config.skillDirs - root-relative `<name>/SKILL.md` directories.
    * @param config.paths - extra project roots outside the session working directory.
+   * @param options - internal seam; production callers pass nothing.
+   * @param options.loadSchema - replaces the lazy `@deepseek-ai/schemastery` load.
    */
-  apply(ctx, config) {
-    const settings = {
-      maxBytes: nonNegative(config?.maxBytes, DEFAULT_MAX_BYTES),
-      scanSubdirectories: nonNegative(config?.scanSubdirectories, 1),
-      instructionDirs: config?.instructionDirs ?? ['.github/instructions'],
-      skillDirs: config?.skillDirs ?? ['.github/skills'],
-      paths: stringList(config?.paths),
-    }
+  apply(ctx, config, options) {
+    // The composition entry is both the settings namespace's `base` layer and
+    // the value this plugin runs on when no settings provider is mounted, so it
+    // is held as a thunk: `setSource` swaps the thunk, never a snapshot.
+    let readSettings = () => config
+    const settings = () => normalizeSettings(readSettings())
+
+    attachSettings(ctx, {
+      entry: config,
+      onSource: (next) => {
+        readSettings = next
+      },
+      loadSchema: options?.loadSchema,
+    })
 
     /**
      * Per-session state, keyed by session id:
@@ -112,8 +135,9 @@ export default {
         if (payload.step === 1 && decision.messages.length === 0) return decision
 
         const session = sessionFor(String(payload.agent.id), payload.agent.session?.header?.cwd)
-        const rendered = renderInstructions(session, settings)
-        const text = withRemovals(rendered, session, settings.maxBytes)
+        const current = settings()
+        const rendered = renderInstructions(session, current)
+        const text = withRemovals(rendered, session, current.maxBytes)
         if (text === null) return decision
 
         // Append rather than splice after the claimed messages.
@@ -144,7 +168,7 @@ export default {
         async list(options) {
           const cwd = nonEmptyString(options?.cwd)
           if (cwd === null) return []
-          const found = discover({ cwd, ...settings })
+          const found = discover({ cwd, ...settings() })
           reportWarnings(found.warnings, loggedWarnings)
           return found.skills.map(toCandidate)
         },
@@ -213,6 +237,81 @@ function deepFreeze(value) {
     Object.freeze(value)
   }
   return value
+}
+
+/**
+ * Register this plugin's runtime settings namespace, tolerating its absence.
+ *
+ * Two things are deliberately optional:
+ *
+ * - **The `settings` service.** `ctx.inject` runs the callback only once the
+ *   service is up, and `installSection` hands back `() => entry` when the
+ *   service goes away, so a deployment with no settings provider keeps running
+ *   on the composition config alone.
+ * - **`@deepseek-ai/schemastery`.** The schema has to be a real schemastery
+ *   schema: the browser rebuilds it from `schema.toJSON()` to render the card,
+ *   and a hand-written envelope is not rebuildable. Loading it lazily keeps this
+ *   package's load-time imports at zero — a clone with no `node_modules` still
+ *   runs `npm test` — and a profile that cannot resolve the package loses the
+ *   card rather than the whole plugin.
+ *
+ * @param ctx - the host context the row was composed into.
+ * @param options.entry - the composition config, used as the `base` layer.
+ * @param options.onSource - receives the live settings getter.
+ * @param options.loadSchema - schema loader; tests replace it.
+ */
+export function attachSettings(ctx, { entry, onSource, loadSchema = defaultSchemaLoader }) {
+  // A context outside the real loader (a test double) simply has no settings.
+  if (typeof ctx.inject !== 'function') return
+
+  let disposed = false
+  ctx.effect?.(() => () => {
+    disposed = true
+  }, `${PROVIDER_NAME}: settings load guard`)
+
+  ctx.inject(['settings'], (settingsCtx) => {
+    Promise.resolve()
+      .then(() => loadSchema())
+      .then((schema) => {
+        if (disposed) return
+        settingsCtx.settings.installSection(ctx, SETTINGS_NAMESPACE, schema, entry, {
+          setSource: (current) => onSource(current),
+          // Discovery re-reads the settings on every step, so a committed change
+          // needs nothing here: the next step already sees it.
+          onChange: () => {},
+        })
+      })
+      .catch((error) => {
+        console.error(`[${PROVIDER_NAME}] settings namespace not registered:`, error)
+      })
+  })
+}
+
+/** The defaults the composition entry and the schema both start from. */
+const SETTINGS_DEFAULTS = {
+  maxBytes: DEFAULT_MAX_BYTES,
+  scanSubdirectories: DEFAULT_SCAN_SUBDIRECTORIES,
+  instructionDirs: DEFAULT_INSTRUCTION_DIRS,
+  skillDirs: DEFAULT_SKILL_DIRS,
+  paths: [],
+}
+
+/** The one place a DSH package is imported, and only when settings exist. */
+function defaultSchemaLoader() {
+  return Promise.all([import('@deepseek-ai/schemastery'), import('./lib/settings.js')]).then(
+    ([schemastery, settings]) => settings.settingsSchema(schemastery.default, SETTINGS_DEFAULTS),
+  )
+}
+
+/** What this plugin runs on, whether it came from the composition or from settings. */
+export function normalizeSettings(config) {
+  return {
+    maxBytes: nonNegative(config?.maxBytes, DEFAULT_MAX_BYTES),
+    scanSubdirectories: nonNegative(config?.scanSubdirectories, DEFAULT_SCAN_SUBDIRECTORIES),
+    instructionDirs: stringList(config?.instructionDirs, DEFAULT_INSTRUCTION_DIRS),
+    skillDirs: stringList(config?.skillDirs, DEFAULT_SKILL_DIRS),
+    paths: stringList(config?.paths),
+  }
 }
 
 /**
@@ -368,8 +467,8 @@ function nonNegative(value, fallback) {
 }
 
 /** A configured path list: drop anything that is not a usable path string. */
-function stringList(value) {
-  if (!Array.isArray(value)) return []
+function stringList(value, fallback = []) {
+  if (!Array.isArray(value)) return fallback
   return value.filter((entry) => typeof entry === 'string' && entry.trim() !== '')
 }
 

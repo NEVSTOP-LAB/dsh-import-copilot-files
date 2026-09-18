@@ -14,6 +14,12 @@
 # The plugin publishes no service, so it sits loose in the host composition
 # rather than behind an `isolate` realm; registering on the host plane is what
 # makes its contributions global, i.e. visible to every session and preset.
+#
+# This row's `config` is also the base layer of the plugin's settings namespace
+# (`import-vscode-ai-files`), which the same plugin serves to the GUI's
+# Settings → Plugins → plugin-configuration tab. Editing `paths` there takes
+# effect without a restart; leaving it here is what a deployment without that
+# card, or a pinned one, runs on.
 - insert:
     - id: dsh-import-vscode-ai-files
       name: 'dsh-import-vscode-ai-files'
@@ -22,3 +28,10 @@
         maxBytes: 65536
         # Project roots scanned: the session cwd plus this many levels below it.
         scanSubdirectories: 1
+        # Extra project roots, each scanned by the same rule as the cwd — the
+        # cwd itself plus `scanSubdirectories` levels below it. Absolute paths,
+        # or paths relative to the session cwd. For example:
+        #   paths:
+        #     - D:\NEVSTOP-LAB\shared-ai-config
+        #     - \\server\team\.ai
+        paths: []
