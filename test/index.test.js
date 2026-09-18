@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 import plugin from '../index.js'
 
 const WORKSPACE = fileURLToPath(new URL('./fixtures/workspace', import.meta.url))
+const SHARED = fileURLToPath(new URL('./fixtures/shared', import.meta.url))
 
 const agentFor = (id, cwd = WORKSPACE) => ({ id, session: { header: { cwd } } })
 
@@ -321,4 +322,32 @@ test('a render never exceeds the configured budget', async () => {
 
 test('a budget too small for even one block renders nothing', async () => {
   assert.equal(await mount(WORKSPACE, { maxBytes: 200 }).render(), '')
+})
+
+test('a configured path injects its instructions for a session with no .github of its own', async () => {
+  const bare = join(WORKSPACE, 'not-a-repo')
+  assert.equal(await mount(bare).render(), '')
+  const withShared = await mount(bare, { paths: [SHARED] }).render()
+  assert.match(withShared, /Instructions from: .*shared.*copilot-instructions\.md/)
+  assert.match(withShared, /keep the shared convention/)
+})
+
+test('a configured path contributes its skills to every session', async () => {
+  const names = (await mount(WORKSPACE, { paths: [SHARED] }).list({ cwd: WORKSPACE })).map(
+    (skill) => skill.name,
+  )
+  assert.deepEqual(names, ['child-skill', 'demo-skill', 'dir-named-skill', 'quiet-skill', 'shared-skill'])
+})
+
+test('an applyTo rule from a configured path waits for a file under that root', async () => {
+  const session = mount(WORKSPACE, { paths: [SHARED] })
+  await session.render()
+  session.observe(join(SHARED, 'src', 'a.shared.ts'))
+  assert.match(await session.render(), /Shared scoped rule\./)
+})
+
+test('a configured path that does not exist changes nothing', async () => {
+  const withoutPaths = await mount(WORKSPACE, { paths: [join(WORKSPACE, 'gone')] }).render()
+  assert.match(withoutPaths, /Instructions from: \.github\/copilot-instructions\.md/)
+  assert.doesNotMatch(withoutPaths, /keep the shared convention/)
 })

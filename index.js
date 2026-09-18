@@ -71,6 +71,7 @@ export default {
    * @param config.scanSubdirectories - levels below `cwd` treated as project roots.
    * @param config.instructionDirs - root-relative `*.instructions.md` directories.
    * @param config.skillDirs - root-relative `<name>/SKILL.md` directories.
+   * @param config.paths - extra project roots outside the session working directory.
    */
   apply(ctx, config) {
     const settings = {
@@ -78,6 +79,7 @@ export default {
       scanSubdirectories: nonNegative(config?.scanSubdirectories, 1),
       instructionDirs: config?.instructionDirs ?? ['.github/instructions'],
       skillDirs: config?.skillDirs ?? ['.github/skills'],
+      paths: stringList(config?.paths),
     }
 
     /**
@@ -363,6 +365,12 @@ function nonEmptyString(value) {
 
 function nonNegative(value, fallback) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback
+}
+
+/** A configured path list: drop anything that is not a usable path string. */
+function stringList(value) {
+  if (!Array.isArray(value)) return []
+  return value.filter((entry) => typeof entry === 'string' && entry.trim() !== '')
 }
 
 function normalize(value) {
