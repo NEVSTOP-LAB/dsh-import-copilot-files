@@ -111,7 +111,7 @@ export default {
 
         const session = sessionFor(String(payload.agent.id), payload.agent.session?.header?.cwd)
         const rendered = renderInstructions(session, settings)
-        const text = withRemovals(rendered, session)
+        const text = withRemovals(rendered, session, settings.maxBytes)
         if (text === null) return decision
 
         // Append rather than splice after the claimed messages.
@@ -151,7 +151,14 @@ export default {
           const file = typeof candidate?.locator === 'string' ? candidate.locator : null
           if (file === null) return undefined
           // Read on every load: the body has no cache to invalidate.
-          const { body } = parseFrontmatter(readFileSync(file, 'utf8'))
+          let source
+          try {
+            source = readFileSync(file, 'utf8')
+          } catch (error) {
+            if (error?.code === 'ENOENT') return undefined
+            throw error
+          }
+          const { body } = parseFrontmatter(source)
           return { ...describe(candidate, dirname(file)), path: file, content: body.trim() }
         },
       }
@@ -166,7 +173,7 @@ export default {
       const agent = actor?.agent
       if (agent?.id === undefined) return
       const session = sessionFor(String(agent.id), agent.session?.header?.cwd)
-      const absolute = isAbsolute(display)
+      const absolute = isPortableAbsolute(display)
         ? display
         : session.cwd === null
           ? null
@@ -213,17 +220,17 @@ function deepFreeze(value) {
  * so paths that disappeared get an explicit removal notice rather than being
  * silently dropped.
  */
-function withRemovals(rendered, session) {
+function withRemovals(rendered, session, maxBytes) {
   const removed = [...session.injectedPaths].filter((path) => !rendered.paths.has(path))
   if (removed.length === 0 && rendered.text === session.injectedText) return null
   if (removed.length === 0 && rendered.text === '') return null
 
   const parts = []
   if (removed.length > 0) {
-    parts.push(`Instructions removed:\n${removed.map((path) => `- ${path}`).join('\n')}`)
+    parts.push(`Instructions removed:\n${removed.map((path) => `- ${sanitize(path)}`).join('\n')}`)
   }
   if (rendered.text !== '') parts.push(rendered.text)
-  return parts.join('\n\n')
+  return truncateUtf8(parts.join('\n\n'), maxBytes)
 }
 
 function renderInstructions(session, settings) {
@@ -257,7 +264,7 @@ function compose(entries, maxBytes) {
   if (entries.length === 0) return { text: '', paths }
   // The notice is appended after the blocks, so its headroom comes off the top:
   // without that reserve the render can exceed the configured budget.
-  const budget = maxBytes - INTRO.length - 2 - NOTICE_RESERVE
+  const budget = maxBytes - utf8ByteLength(INTRO) - 2 - NOTICE_RESERVE
 
   const kept = []
   let used = 0
@@ -266,15 +273,15 @@ function compose(entries, maxBytes) {
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index]
     const block = renderBlock(entry)
-    if (used + block.length + 2 <= budget) {
+    if (used + utf8ByteLength(block) + 2 <= budget) {
       kept.push(block)
       paths.add(entry.displayPath)
-      used += block.length + 2
+      used += utf8ByteLength(block) + 2
       continue
     }
     const remaining = budget - used - 2
-    if (remaining >= MIN_TRUNCATED_BLOCK + TRUNCATED_SUFFIX.length) {
-      kept.push(`${block.slice(0, remaining - TRUNCATED_SUFFIX.length)}${TRUNCATED_SUFFIX}`)
+    if (remaining >= MIN_TRUNCATED_BLOCK + utf8ByteLength(TRUNCATED_SUFFIX)) {
+      kept.push(`${truncateUtf8(block, remaining - utf8ByteLength(TRUNCATED_SUFFIX))}${TRUNCATED_SUFFIX}`)
       paths.add(entry.displayPath)
       dropped = entries.length - index - 1
     } else {
@@ -291,14 +298,31 @@ function compose(entries, maxBytes) {
 function renderBlock(entry) {
   const heading =
     entry.applyTo === null
-      ? `Instructions from: ${entry.displayPath}`
-      : `Instructions from: ${entry.displayPath}\nApplies to: ${entry.applyTo.join(', ')}`
+      ? `Instructions from: ${sanitize(entry.displayPath)}`
+      : `Instructions from: ${sanitize(entry.displayPath)}\nApplies to: ${entry.applyTo.map(sanitize).join(', ')}`
   return `${heading}\n\n${sanitize(entry.content).trim()}`
 }
 
 /** Repository-controlled text must not be able to close the harness frame. */
 function sanitize(content) {
   return content.replaceAll('</system-reminder>', '<\\/system-reminder>')
+}
+
+function isPortableAbsolute(value) {
+  return isAbsolute(value) || /^(?:[A-Za-z]:[\\/]|\\\\)/.test(value)
+}
+
+function utf8ByteLength(value) {
+  return Buffer.byteLength(value, 'utf8')
+}
+
+function truncateUtf8(value, maxBytes) {
+  if (maxBytes <= 0) return ''
+  if (utf8ByteLength(value) <= maxBytes) return value
+  const bytes = Buffer.from(value, 'utf8').subarray(0, maxBytes)
+  let end = bytes.length
+  while (end > 0 && (bytes[end - 1] & 0xc0) === 0x80) end -= 1
+  return bytes.subarray(0, end).toString('utf8')
 }
 
 function describe(skill, directory) {

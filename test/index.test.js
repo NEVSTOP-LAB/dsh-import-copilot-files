@@ -263,6 +263,21 @@ test('get re-reads the body from disk, with frontmatter stripped', async () => {
   })
 })
 
+test('a skill deleted after listing is treated as unavailable', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  try {
+    mkdirSync(join(root, '.github', 'skills', 'gone'), { recursive: true })
+    const file = join(root, '.github', 'skills', 'gone', 'SKILL.md')
+    writeFileSync(file, '---\nname: gone\ndescription: Gone\n---\nBody')
+    const session = mount(root)
+    const candidate = (await session.list({ cwd: root })).find((skill) => skill.name === 'gone')
+    rmSync(file)
+    assert.equal(await session.get(candidate), undefined)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('get without a locator answers undefined instead of throwing', async () => {
   assert.equal(await mount().get({}), undefined)
 })
@@ -300,7 +315,7 @@ test('a render never exceeds the configured budget', async () => {
   // Walks the range where the truncation and omission paths take over.
   for (const maxBytes of [300, 400, 460, 520, 700, 1000, 4096]) {
     const rendered = await mount(WORKSPACE, { maxBytes }).render()
-    assert.ok(rendered.length <= maxBytes, `maxBytes=${maxBytes} produced ${rendered.length} characters`)
+    assert.ok(Buffer.byteLength(rendered, 'utf8') <= maxBytes, `maxBytes=${maxBytes} exceeded byte budget`)
   }
 })
 

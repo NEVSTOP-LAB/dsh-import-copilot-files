@@ -162,7 +162,7 @@ IO 全部同步（`discover()` 是同步函数）：零缓存、零失效逻辑�
 
 ### 5.3 离线
 
-`npm run check`：5 个文件的 `node --check` + 56 项 `node:test`。
+`npm run check`：6 个文件的 `node --check` + 58 项 `node:test`。
 `test/index.test.js` 对着假 Cordis 上下文驱动真实插件对象，覆盖注入顺序、跨会话隔离、
 预算边界、`applyTo` 正反例与移除通知。
 

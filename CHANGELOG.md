@@ -41,8 +41,8 @@
 
 ### 验证
 
-- `npm run check`：5 个文件的 `node --check` + 56 项 `node:test` 全绿
-  （glob 9 / frontmatter 9 / discover 13 / 插件 26，其中插件部分对着假 Cordis 上下文
+- `npm run check`：6 个文件的 `node --check` + 58 项 `node:test` 全绿
+  （glob 9 / frontmatter 9 / discover 13 / 插件 27，其中插件部分对着假 Cordis 上下文
   驱动真实的 `agent/pre-step` 瀑布、skill provider 与 `fs/observed` 监听器）。
 - 三条接缝在真实运行时逐条实测：`agent/pre-step` 注入的 `form: 'instructions'` 消息确实
   到达模型并被 GUI 标成独立注入行；`skills.list/get` 对真实工作区返回正确的策略与正文；
