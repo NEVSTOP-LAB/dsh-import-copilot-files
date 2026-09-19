@@ -4,8 +4,9 @@ A DSH plugin that loads a workspace's own **VSCode / Copilot style AI configurat
 **every** DeepSeek Harness session. The same `.github` files then drive both VSCode and DSH —
 no second copy to maintain.
 
-It can also load further paths that live **outside** the workspace, with exactly the same
-rules — one shared set of rules feeding every repository.
+It can also load further **configuration directories** that live outside the workspace —
+directories equivalent to a project's `.github` folder, with no `.github` of their own — one
+shared set of rules feeding every repository.
 
 > [!NOTE]
 > The plugin only **reads** your workspace configuration, and it writes no workspace file. It
@@ -21,8 +22,9 @@ rules — one shared set of rules feeding every repository.
 | `.github/instructions/**/*.instructions.md` | scoped by the frontmatter `applyTo`: files without it are always injected; files with it are injected only once the session has actually looked at a matching file |
 | `.github/skills/<name>/SKILL.md` | registered as DSH skills — `name` + `description` reach the skill catalog, the body loads on demand |
 
-`applyTo` follows VSCode's rule: patterns match **relative to the project root the file belongs
-to** (not the workspace root), and support `**`, `*`, `?`, `{a,b}`, `[abc]`, comma-separated.
+`applyTo` follows VSCode's rule: patterns match **relative to the root the file belongs to** — a
+project root for the workspace walk, and the configured path itself for a `paths` entry — and
+support `**`, `*`, `?`, `{a,b}`, `[abc]`, comma-separated.
 
 `SKILL.md` frontmatter means the same as it does for a native DSH skill:
 
@@ -33,23 +35,39 @@ to** (not the workspace root), and support `**`, `*`, `?`, `{a,b}`, `[abc]`, com
 
 ### Scan scope
 
+The unit of scanning is a **configuration directory** — one laid out like `.github`, holding
+`copilot-instructions.md`, `instructions/` and `skills/`. Two things produce one.
+
 The session cwd, plus the direct subdirectories `scanSubdirectories` levels below it (1 by
-default), each contributing its own `.github/`. `.github/instructions/` is walked recursively
-(depth capped at 4).
+default): each of those is a **project root**, and its configuration directory is its `.github/`.
+`.github/instructions/` is walked recursively (depth capped at 4).
 
 That is what makes a multi-repo folder such as `D:\NEVSTOP-LAB` work: the folder itself and every
 repository directly under it contribute their own `.github`, without interfering. The ancestor
 chain is deliberately not walked, and neither are deeper levels.
 
-Each entry in `paths` is scanned by **exactly the same rule** — the path itself, then the same
-number of levels below it. So "one shared set of rules outside every workspace" is a folder name
-in `paths`. Paths may be absolute or relative to the session cwd, and a path that does not exist
-contributes nothing rather than failing. Naming a directory the scan already reached does not walk
-it a second time — a second visit would get a fresh depth budget and pull in one level the rule
-does not allow; conversely, a path deeper than the cwd budget IS scanned when it is named, because
-naming it is the request. Instructions reached through `paths` are labelled with their **absolute**
-path (`..\..` chains say less), and `applyTo` still matches relative to each file's own project
-root.
+Every entry in `paths` **is** a configuration directory itself — the `.github`-equivalent, with no
+`.github` segment under it. `paths: [D:\shared-ai]` reads `D:\shared-ai\copilot-instructions.md`,
+`D:\shared-ai\instructions\**` and `D:\shared-ai\skills\<name>\SKILL.md`. The entry's own walk never
+reads a `.github` inside it; only when that directory is *also* reached by the cwd walk can its
+`.github` be read — as a **project root's** `.github`, which is the cwd-side rule, the two sides
+being independent. So "one shared set of
+rules outside every workspace" is a folder name in `paths`. Each entry is exactly one configuration
+directory, so `scanSubdirectories` does **not** apply to it: its subdirectories are content
+(`instructions/`, `skills/`), not further configuration directories.
+
+Paths may be absolute or relative to the session cwd, and a path that does not exist contributes
+nothing rather than failing. A configuration directory the scan already read is not read again
+(naming a project's own `.github` adds nothing). For a `paths` entry, `instructionDirs` /
+`skillDirs` lose a leading `.github` segment — the default `.github/instructions` therefore means
+`<path>/instructions`, while a directory that does not start with `.github` is joined as it is.
+Instructions reached through `paths` are labelled with their **absolute** path (`..\..` chains say
+less), and `applyTo` matches relative to that entry's own configuration directory.
+
+**AGENTS.md is not this plugin's business**: it belongs to the DSH core
+(`dsh-agent-instructions`), which reads it along the project-root-to-cwd ancestor chain. It is
+therefore a current-working-directory concept, and neither `paths` nor a subdirectory root
+contributes one.
 
 ## What you see in a session
 
@@ -70,15 +88,16 @@ The plugin row lives in [`cordis.patch.yml`](./cordis.patch.yml); its `config` f
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `maxBytes` | `65536` | per-injection byte budget; over it, files are omitted first and the last one truncated, with the loss stated in the body |
-| `scanSubdirectories` | `1` | levels below the cwd treated as project roots (applied to each entry in `paths` too) |
-| `instructionDirs` | `['.github/instructions']` | where `*.instructions.md` lives |
-| `skillDirs` | `['.github/skills']` | where `<name>/SKILL.md` lives |
-| `paths` | `[]` | extra project roots **outside** the workspace, scanned by the same rule as the cwd |
+| `scanSubdirectories` | `1` | levels below the cwd treated as project roots (the cwd walk only) |
+| `instructionDirs` | `['.github/instructions']` | where `*.instructions.md` lives, relative to a configuration directory (a `paths` entry drops the leading `.github`) |
+| `skillDirs` | `['.github/skills']` | where `<name>/SKILL.md` lives (same rule) |
+| `paths` | `[]` | configuration directories **outside** the workspace, equivalent to a project's `.github` (no `.github` under them) |
 
 ### Editing the paths in the Plugins page
 
-`paths` is also a field of the plugin's settings namespace (`import-vscode-ai-files`), so the
-card for this plugin appears under **Settings → Plugins → plugin configuration**: add, edit and
+`paths` is also a field of the plugin's settings namespace (`import-vscode-ai-files`), so the card
+titled **Import VSCode AI Files** (in a Chinese UI, 导入 VSCode AI 文件) appears under
+**Settings → Plugins → plugin configuration**: add, edit and
 remove paths, then save, discard, or reset to the deployment default. The card has the same shape
 as every other card on that page: a collapsed header that discloses the fields, the
 add / browse / remove row, and discard / save in the footer.
@@ -134,8 +153,9 @@ dsh --profile desktop --dump-config
 
 > [!IMPORTANT]
 > DSH's profile patch layer is **not hot-reloaded** — restart DSH after installing.
-> Once installed, editing `.github/**` inside a repository takes effect **immediately** (it is
-> re-read on every model step); only editing the plugin's own source needs another restart.
+> Once installed, editing `.github/**` inside a repository — or the files under a configured
+> `paths` entry — takes effect **immediately** (it is re-read on every model step); only editing
+> the plugin's own source needs another restart.
 
 Uninstall:
 

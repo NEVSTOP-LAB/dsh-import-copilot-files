@@ -84,9 +84,9 @@ export default {
    * @param config - optional row configuration.
    * @param config.maxBytes - rendered-instructions budget.
    * @param config.scanSubdirectories - levels below `cwd` treated as project roots.
-   * @param config.instructionDirs - root-relative `*.instructions.md` directories.
-   * @param config.skillDirs - root-relative `<name>/SKILL.md` directories.
-   * @param config.paths - extra project roots outside the session working directory.
+   * @param config.instructionDirs - `*.instructions.md` directories, relative to a configuration directory.
+   * @param config.skillDirs - `<name>/SKILL.md` directories, relative to a configuration directory.
+   * @param config.paths - configured paths that ARE the `.github`-equivalent directory.
    * @param options - internal seam; production callers pass nothing.
    * @param options.loadSchema - replaces the lazy `@deepseek-ai/schemastery` load.
    */
@@ -211,10 +211,15 @@ export default {
       if (absolute === null) return
       if (session.touched.size < TOUCHED_LIMIT) session.touched.add(absolute)
       // One provider serves every workspace, so its catalog must be invalidated
-      // by a `.github` change anywhere — not only under this session's own cwd.
-      // Binding this to `session.cwd` left a skill edited in workspace B stale
-      // for a session sitting in workspace A.
-      if (normalize(absolute).includes(GITHUB_SEGMENT)) invalidateCatalog?.()
+      // by a configuration change anywhere — not only under this session's own
+      // cwd. Binding this to `session.cwd` left a skill edited in workspace B
+      // stale for a session sitting in workspace A.
+      //
+      // A `.github` segment is only one of the two shapes a configuration
+      // directory has: a configured path IS such a directory, so a skill edited
+      // under it carries no `.github` at all and would otherwise never refresh
+      // the catalog.
+      if (touchesConfigDir(absolute, settings(), session.cwd)) invalidateCatalog?.()
     })
   },
 }
@@ -480,4 +485,33 @@ function stringList(value, fallback = []) {
 
 function normalize(value) {
   return value.replace(/\\/g, '/')
+}
+
+/**
+ * Whether an observed file lies inside a configuration directory: a `.github`
+ * tree, or one of the configured `paths` — which IS such a directory itself and
+ * so has no `.github` segment to be recognised by.
+ *
+ * A configured path is resolved exactly as discovery resolves it, relative to
+ * the session cwd. A session with no cwd yet cannot place a relative entry, so
+ * that entry is skipped rather than guessed at against the process cwd.
+ */
+function touchesConfigDir(absolute, current, cwd) {
+  const observed = comparable(normalize(absolute))
+  if (observed.includes(GITHUB_SEGMENT)) return true
+
+  for (const entry of current.paths) {
+    const value = typeof entry === 'string' ? entry.trim() : ''
+    if (value === '') continue
+    if (cwd === null && !isPortableAbsolute(value)) continue
+    const base = comparable(normalize(resolve(cwd ?? process.cwd(), value))).replace(/\/+$/, '')
+    if (base === '') continue
+    if (observed === base || observed.startsWith(`${base}/`)) return true
+  }
+  return false
+}
+
+/** Compare paths the way the platform's filesystem does. */
+function comparable(value) {
+  return process.platform === 'win32' ? value.toLowerCase() : value
 }

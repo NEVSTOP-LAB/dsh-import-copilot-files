@@ -195,8 +195,13 @@ test('the card is registered under the settings namespace the host serves', () =
 
   assert.deepEqual(module.inject, ['slots', 'locale', 'settingsScope'])
   assert.deepEqual(dictionaries.map((entry) => entry.ns), [NAMESPACE])
-  assert.ok(dictionaries[0].dicts.zh.title.length > 0)
-  assert.ok(dictionaries[0].dicts.en.title.length > 0)
+  // The card's title is what the settings page shows for this plugin, so it is
+  // pinned here rather than merely checked for being non-empty.
+  assert.equal(dictionaries[0].dicts.zh.title, '导入 VSCode AI 文件')
+  assert.equal(dictionaries[0].dicts.en.title, 'Import VSCode AI Files')
+  // A configured row is a configuration directory, not a project root.
+  assert.doesNotMatch(dictionaries[0].dicts.zh.intro, /项目根/)
+  assert.doesNotMatch(dictionaries[0].dicts.en.intro, /project root/i)
   assert.deepEqual(binds, [{ namespace: NAMESPACE }])
   assert.deepEqual(injections.map((entry) => entry.key), ['settings.plugin.item'])
 

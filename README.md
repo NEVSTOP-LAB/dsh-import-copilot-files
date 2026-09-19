@@ -3,7 +3,8 @@
 DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**加载进**每一个** DSH 会话。
 同一份 `.github` 配置在 VSCode 和 DSH 里同时生效，不用维护两套。
 
-也可以再指定若干**工作区之外**的路径，让它们按同样的规则一起生效——一份共享规则喂给所有仓库。
+也可以再指定若干**工作区之外**的配置目录（等价于项目根里的 `.github`，它下面不再有
+`.github` 目录），让它们一起生效——一份共享规则喂给所有仓库。
 
 > [!NOTE]
 > 插件只**读取**工作区里的配置，不写任何工作区文件。它另外向 DSH 注册一个设置命名空间
@@ -18,8 +19,8 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 | `.github/instructions/**/*.instructions.md` | 按 frontmatter `applyTo` 生效：没有 `applyTo` 的常驻；有 `applyTo` 的，只在本会话**真的碰过**匹配文件之后才注入 |
 | `.github/skills/<name>/SKILL.md` | 注册为 DSH 技能：`name` + `description` 进技能目录，正文按需加载 |
 
-`applyTo` 的匹配规则与 VSCode 一致：相对**该文件所属的项目根**匹配（不是工作区根），
-支持 `**`、`*`、`?`、`{a,b}`、`[abc]`，逗号分隔多个模式。
+`applyTo` 的匹配规则与 VSCode 一致：相对**该文件所属的那个根**匹配 —— cwd 侧是项目根，
+`paths` 条目侧是条目自身（不是工作区根），支持 `**`、`*`、`?`、`{a,b}`、`[abc]`，逗号分隔多个模式。
 
 `SKILL.md` 的 frontmatter 与 DSH 原生技能同义：
 
@@ -29,19 +30,33 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 
 ### 扫描范围
 
-会话 cwd 本身，加上它下面 `scanSubdirectories` 层（默认 1 层）的直接子目录，各取自己的
-`.github/`；`.github/instructions/` 内部再递归（深度上限 4）。
+扫描的单位是**配置目录** —— 一个按 `.github` 摆放的目录（`copilot-instructions.md`、
+`instructions/`、`skills/`）。两种东西会产生配置目录。
+
+会话 cwd 本身，加上它下面 `scanSubdirectories` 层（默认 1 层）的直接子目录：这些目录各是一个
+**项目根**，配置目录是它的 `.github/`。`.github/instructions/` 内部再递归（深度上限 4）。
 
 这样 `D:\NEVSTOP-LAB` 这类「多 repo 工作文件夹」就成立：文件夹自身和它直接下面的每个 repo
 都会贡献自己的 `.github`，互不干扰。不向上找祖先链，也不下探更深的层。
 
-`paths` 里的每个路径按**完全相同的规则**再扫一遍（它自己 + 同样层数的直接子目录）。
+`paths` 里的每个路径**本身就是配置目录**（等价于项目根的 `.github`，它下面不再有 `.github`）：
+`paths: [D:\shared-ai]` 读的是 `D:\shared-ai\copilot-instructions.md`、
+`D:\shared-ai\instructions\**` 与 `D:\shared-ai\skills\<name>\SKILL.md`。
+条目自身的走查不会去读它内部的 `.github` 树；只有当这个目录**同时**落在 cwd 走查范围内时，
+那棵树才可能以**项目根的** `.github` 身份被读到 —— 那是 cwd 侧的规则，两侧互不影响。
 所以「一份共享规则放在工作区外，所有仓库共用」只需要把那个文件夹写进 `paths`。
+每个条目恰好是一个配置目录，**不再**适用 `scanSubdirectories`：它的子目录是内容
+（`instructions/`、`skills/`），不是更多的配置目录。
+
 路径可以是绝对路径，也可以是相对会话 cwd 的路径；不存在的路径贡献为空，不会报错。
-重复点名一个**已经扫到过**的目录不会走第二遍 —— 第二遍会重新拿到一整层下探预算，从而多扫出
-一层本来不该有的目录；反过来，比 cwd 的下探预算更深、但被 `paths` 点名的路径仍会被扫，
-因为点名的意思就是要它。通过 `paths` 扫到的指令，标题用**绝对路径**（`..\..` 链说不清位置），
-`applyTo` 仍相对它自己的项目根匹配。
+已经被扫过的配置目录不会走第二遍（点名 cwd 下某个项目自己的 `.github` 等于没点）。
+`instructionDirs` / `skillDirs` 在 `paths` 条目上会**去掉前导的 `.github` 段**：默认值
+`.github/instructions` 因此读作 `<路径>/instructions`，不以 `.github` 开头的目录原样拼接。
+通过 `paths` 扫到的指令，标题用**绝对路径**（`..\..` 链说不清位置），`applyTo` 相对它自己的
+配置目录（即该路径本身）匹配。
+
+**AGENTS.md 不由本插件处理**：它属于 DSH 核心的 `dsh-agent-instructions`，按 project root →
+cwd 的祖先链读取，因此只在当前工作目录这条链上生效；`paths` 与子目录根都不会贡献 AGENTS.md。
 
 ## 在会话里看到什么
 
@@ -62,15 +77,16 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 | 字段 | 默认 | 含义 |
 | --- | --- | --- |
 | `maxBytes` | `65536` | 单次注入的字节预算；超出时先省略、再截断，并在正文里说明丢了多少 |
-| `scanSubdirectories` | `1` | cwd 下当作项目根的下探层数（`paths` 里的每个路径同样适用） |
-| `instructionDirs` | `['.github/instructions']` | `*.instructions.md` 所在目录 |
-| `skillDirs` | `['.github/skills']` | `<name>/SKILL.md` 所在目录 |
-| `paths` | `[]` | **工作区之外**的额外项目根，按与 cwd 相同的规则扫描 |
+| `scanSubdirectories` | `1` | cwd 下当作项目根的下探层数（只作用于 cwd 的走查） |
+| `instructionDirs` | `['.github/instructions']` | `*.instructions.md` 所在目录（相对配置目录；`paths` 条目会去掉前导 `.github`） |
+| `skillDirs` | `['.github/skills']` | `<name>/SKILL.md` 所在目录（同上） |
+| `paths` | `[]` | **工作区之外**的配置目录，等价于项目根的 `.github`（它下面不再有 `.github`） |
 
 ### 在插件页里改路径
 
 `paths` 同时是该插件设置命名空间（`import-vscode-ai-files`）的一个字段，所以可以在
-**设置 → 插件 → 插件配置** 里找到本插件那张卡片：逐行增删路径、保存、放弃或恢复默认。
+**设置 → 插件 → 插件配置** 里找到标题为「导入 VSCode AI 文件」（英文界面
+`Import VSCode AI Files`）的那张卡片：逐行增删路径、保存、放弃或恢复默认。
 卡片的形态与同页其他插件的卡片一致：折叠的标题栏（展开后才是字段），字段下面是
 「添加路径 / 浏览… / 删除」，右下角是「放弃 / 保存」。
 

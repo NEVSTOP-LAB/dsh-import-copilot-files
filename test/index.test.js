@@ -281,7 +281,9 @@ test('get re-reads the body from disk, with frontmatter stripped', async () => {
   const session = mount()
   const candidate = (await session.list({ cwd: WORKSPACE })).find((skill) => skill.name === 'demo-skill')
   const definition = await session.get(candidate)
-  assert.equal(definition.content, '# Demo skill\n\nFollow these steps.')
+  // The body is returned verbatim, so a checkout with `core.autocrlf=true`
+  // (Windows) hands back CRLF: normalise before comparing the text itself.
+  assert.equal(definition.content.replaceAll('\r\n', '\n'), '# Demo skill\n\nFollow these steps.')
   assert.equal(definition.name, 'demo-skill')
   assert.deepEqual(definition.resourceBase, {
     kind: 'directory',
@@ -331,6 +333,36 @@ test('a .github change outside this session s cwd still invalidates the catalog'
   assert.equal(session.invalidations(), 1)
 })
 
+test('a change under a configured path invalidates the skill catalog', async () => {
+  // A configured path IS the configuration directory, so it carries no `.github`
+  // segment: matching on `.github` alone would leave every skill edited there
+  // stale until some unrelated observation came along.
+  const session = mount(WORKSPACE, { paths: [SHARED] })
+  await session.render()
+  session.observe(join(SHARED, 'skills', 'shared-skill', 'SKILL.md'))
+  assert.equal(session.invalidations(), 1)
+})
+
+test('a change inside the workspace but outside every configuration directory is ignored', async () => {
+  const session = mount(WORKSPACE, { paths: [SHARED] })
+  await session.render()
+  session.observe(join(WORKSPACE, 'src', 'a.ts'))
+  assert.equal(session.invalidations(), 0)
+  // A sibling folder that merely shares a prefix with the configured path is
+  // not inside it.
+  session.observe(`${SHARED}-elsewhere\\skills\\x\\SKILL.md`)
+  assert.equal(session.invalidations(), 0)
+})
+
+test('a differently-cased path under a configured path still invalidates', { skip: process.platform !== 'win32' }, async () => {
+  // Windows paths are case-insensitive, and the CHANGELOG says so: without the
+  // fold a skill edited through another spelling would stay stale.
+  const session = mount(WORKSPACE, { paths: [SHARED] })
+  await session.render()
+  session.observe(join(SHARED.toUpperCase(), 'skills', 'shared-skill', 'SKILL.md'))
+  assert.equal(session.invalidations(), 1)
+})
+
 test('a tight budget truncates and says what it dropped', async () => {
   const rendered = await mount(WORKSPACE, { maxBytes: 460 }).render()
   assert.match(rendered, /\[truncated\]|omitted by the 460-byte budget/)
@@ -353,8 +385,14 @@ test('a configured path injects its instructions for a session with no .github o
   const bare = join(WORKSPACE, 'not-a-repo')
   assert.equal(await mount(bare).render(), '')
   const withShared = await mount(bare, { paths: [SHARED] }).render()
-  assert.match(withShared, /Instructions from: .*shared.*copilot-instructions\.md/)
+  // The path IS the `.github`-equivalent directory, so the label has no
+  // `.github` segment under it any more.
+  assert.match(withShared, /Instructions from: .*shared\/copilot-instructions\.md/)
   assert.match(withShared, /keep the shared convention/)
+  // Neither a `.github` tree inside the path nor its AGENTS.md may be read.
+  assert.doesNotMatch(withShared, /LEGACY-RULE/)
+  assert.doesNotMatch(withShared, /NESTED-RULE/)
+  assert.doesNotMatch(withShared, /SHARED-AGENTS-MARKER/)
 })
 
 test('a configured path contributes its skills to every session', async () => {

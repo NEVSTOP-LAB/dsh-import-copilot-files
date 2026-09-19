@@ -28,7 +28,7 @@ dsh-import-vscode-ai-files/
 ├── cordis.patch.yml     # 组合层：插入插件行
 ├── index.js             # 插件入口：指令注入 + skill provider + fs/observed + 设置接线
 ├── lib/
-│   ├── discover.js      # 扫描 cwd / paths + 直接子目录，产出 instructions 与 skills
+│   ├── discover.js      # 扫描配置目录（cwd 各项目根的 .github + paths 条目自身），产出 instructions 与 skills
 │   ├── frontmatter.js   # 极简 YAML frontmatter
 │   ├── glob.js          # applyTo 的极简 glob → RegExp
 │   ├── settings.js      # 设置命名空间的 schema（z 由调用方传入，可离线测试）
@@ -74,6 +74,9 @@ npm test          # node --test test/
 > 那种环境下逐个文件直接跑即可，六个测试文件都支持单独执行：
 > `node test/glob.test.js`、`node test/frontmatter.test.js`、`node test/discover.test.js`、
 > `node test/index.test.js`、`node test/settings.test.js`、`node test/client.test.js`。
+> 另外 Windows 检出默认 `core.autocrlf=true`，fixture 在盘上是 CRLF，所以对正文做逐字
+> 比较的断言要先按 EOL 归一化（`test/index.test.js` 里那条就是），否则 `npm run check`
+> 会在一台机器上红、在 CI（ubuntu）上绿。
 
 ### 2.1 测试用什么驱动
 
@@ -112,14 +115,15 @@ npm test          # node --test test/
 
 1. `npm run pack`，再 `dsh plugin --profile <p> add ./dist/dsh-import-vscode-ai-files-<v>.tgz`，
    然后**重启 DSH**（profile patch 层不热重载）。
-2. 打开 **设置 → 插件 → 插件配置**，确认本插件那张卡片出现，标题与「导入其他位置的 AI 文件」
-   一致 —— 出现本身就说明四件事同时成立：host 注册了 namespace、`dsh.client` 被扫描到、
-   bundle 被 `/plugins` 提供、卡片的 slot key 与 namespace 相同。
+2. 打开 **设置 → 插件 → 插件配置**，确认本插件那张卡片出现，标题与「导入 VSCode AI 文件」
+   （英文界面 `Import VSCode AI Files`）一致 —— 出现本身就说明四件事同时成立：host 注册了
+   namespace、`dsh.client` 被扫描到、bundle 被 `/plugins` 提供、卡片的 slot key 与 namespace 相同。
 3. 点开卡片的标题栏，确认展开后的字段与页脚，以及行内的「浏览…」：在 DSH Desktop 窗口里按它
    应弹出 Windows 系统选择框，选中的目录直接填进那一行（仍是未保存的草稿，要再点「保存」）。
-4. 加一个真实存在的共享目录、保存，然后确认两件事：`$DSH_HOME/settings.yaml` 里出现
+4. 加一个真实存在的共享配置目录、保存，然后确认两件事：`$DSH_HOME/settings.yaml` 里出现
    `import-vscode-ai-files:` 小节；新会话的「指令注入」行里出现该目录下的指令
-   （标题是绝对路径）。
+   （标题是绝对路径）。注意该目录**自己**就是 `.github` 的等价物：直接放
+   `copilot-instructions.md`、`instructions/`、`skills/`，不要在它下面再建 `.github`。
 5. 「恢复默认」（字段被覆盖时才出现）应清掉用户覆盖，值回到 `cordis.patch.yml`；
    「放弃」只应丢弃未保存的草稿，不动已存储的值。
 6. 未实测清单见 §4.2——**做完这几步就把对应条目划掉**。
@@ -265,8 +269,18 @@ tarball。
   隔离，于是两个含它的 preset 无法在同一进程共存。实测：把同一份 composition 里唯一一行
   `tool-cordis` 禁用后 `standingKeyFor` 立即 `mounted OK`，不禁用则报
   `inspect provider "Service" is already registered`。
-- **目录失效不能绑在会话 cwd 上**。provider 是全局的、一个实例服务所有工作区，所以任何
-  `.github` 变更都要让它失效，而不只是当前会话 cwd 下的。
+- **目录失效不能绑在会话 cwd 上，也不能只认 `.github`**。provider 是全局的、一个实例服务所有
+  工作区，所以任何配置变更都要让它失效，而不只是当前会话 cwd 下的；而且 `paths` 条目**自己**
+  就是配置目录，路径里没有 `.github` 段 —— 只匹配 `/.github/` 会让共享目录里改技能永远不刷新。
+  `touchesConfigDir` 两种形状都认（`index.js`），`test/index.test.js` 各钉一条。
+- **`paths` 条目是配置目录，不是项目根**。`instructionDirs` / `skillDirs` 在它上面会去掉前导的
+  `.` 段与 `.github` 段（win32 上 `\` 与 `/` 都接受，`custom/rules` 这类自定义目录原样拼接），
+  `scanSubdirectories` 不作用于它，它的子目录是内容而不是更多的配置目录；它内部的 `.github`
+  树一律不被读取 —— 连 `'.'`、`'./.github'`、`'x/.github/y'`、`''`、`'/'` 这些退化写法也不行
+  （fixture 里就放着这样一棵树当负例）。改 `lib/discover.js` 的扫描模型时，cwd 侧与 `paths` 侧
+  只在 `rootDir`（`applyTo` 的锚点）上分叉，别让两边的 `.github` 语义漂移；另外两个单位可能
+  解析到同一个源文件（`paths` 点名一个已在走查里的目录 + 自定义目录名），发现结果按绝对路径
+  去重，别把同一个文件注入两次。
 - **`disable-model-invocation: true` 会让技能不进目录**。这是既定语义，不是插件 bug；
   想让模型看到就不要写这一行（或写 `false`）。
 - **卡片的 slot key 必须等于设置命名空间**。`settings.plugin.item` 是按 namespace 派发的：

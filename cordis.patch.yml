@@ -28,9 +28,11 @@
         maxBytes: 65536
         # Project roots scanned: the session cwd plus this many levels below it.
         scanSubdirectories: 1
-        # Extra project roots, each scanned by the same rule as the cwd — the
-        # cwd itself plus `scanSubdirectories` levels below it. Absolute paths,
-        # or paths relative to the session cwd. For example:
+        # Configuration directories outside the workspace. Each entry IS the
+        # `.github`-equivalent directory: it holds `copilot-instructions.md`,
+        # `instructions/` and `skills/` directly, so there is no `.github` under
+        # it and `scanSubdirectories` does not apply to it. Absolute paths, or
+        # paths relative to the session cwd. For example:
         #   paths:
         #     - D:\NEVSTOP-LAB\shared-ai-config
         #     - \\server\team\.ai
