@@ -62,10 +62,10 @@ cwd 的祖先链读取，因此只在当前工作目录这条链上生效；`pat
 
 | GUI 的注入面板 | 来源 |
 | --- | --- |
-| **指令注入 · `import-vscode-ai-files`** | 本插件注入的 `.github` 指令（标题取自 `source.plugin`） |
-| **技能目录** | `.github/skills` 中 `disable-model-invocation` 不为 `true` 的技能 |
+| **指令注入 · `import-vscode-ai-files`** | 本插件注入的 VSCode 风格指令，来自工作区的 `.github/` 或 `paths` 里的配置目录（标题取自 `source.plugin`） |
+| **技能目录** | 上述配置目录的 `skills/` 中 `disable-model-invocation` 不为 `true` 的技能 |
 
-顺序固定为 **AGENTS.md 在前，`.github` 指令在后**。
+顺序固定为 **AGENTS.md 在前，本插件注入的指令在后**。
 
 内容变化时**追加**一条新的注入，而不是改写旧的；某个文件消失时会先给一条
 `Instructions removed:` 说明，不会静默丢弃。
@@ -138,8 +138,8 @@ dsh --profile desktop --dump-config
 
 > [!IMPORTANT]
 > DSH 的 profile patch 层**不热重载**，安装后要**重启 DSH**。
-> 装好之后改仓库里的 `.github/**` 是**即时生效**的（每个模型步骤重新读盘），
-> 只有改插件自身源码才需要再重启。
+> 装好之后改仓库里的 `.github/**`，或改某个 `paths` 条目下的文件，都是**即时生效**的
+> （每个模型步骤重新读盘）；只有改插件自身源码才需要再重启。
 
 卸载：
 

@@ -313,10 +313,14 @@ tarball。
     Certificate`）。该根证书装在 Windows 证书store 里，所以浏览器、`gh`、Go 程序都正常，
     只有走 schannel 的 git 不行。
   - **怎么看出来**：`openssl s_client` 在受限沙箱里**跑不起来**（Cygwin 进程起不来 signal
-    pipe，`Win32 error 5`，只有一坨 stack trace），改用 node 探针：
+    pipe，`Win32 error 5`，只有一坨 stack trace），改用 node 探针（注意 `s` 要先绑定，
+    回调里才拿得到 `s`，否则是回调内抛 `ReferenceError`，外面 try/catch 也拦不住）：
     ```js
-    tls.connect({ host: 'github.com', port: 443, servername: 'github.com', rejectUnauthorized: false },
-      () => { console.log(s.getPeerCertificate(true).issuer) })
+    import tls from 'node:tls'
+    const s = tls.connect(
+      { host: 'github.com', port: 443, servername: 'github.com', rejectUnauthorized: false },
+      () => { console.log(s.getPeerCertificate(true).issuer) },
+    )
     ```
   - **修**：把**拦截方**的根证书导成 PEM 再换后端。用 `-c http.sslCAInfo=<Git 自带
     ca-bundle.crt>` 会得到 `SSL certificate problem: unable to get local issuer certificate`
@@ -330,7 +334,7 @@ tarball。
     [System.IO.File]::WriteAllText("$env:TEMP\intercept-ca.pem", $pem)
     ```
     然后：`git -c http.sslBackend=openssl -c http.sslCAInfo="$env:TEMP\intercept-ca.pem" push`。
-    **别把它写进 `git config` 或 `.gitignore` 之外的仓库文件** —— CA 路径是本机的，换机器就失效。
+    **别把它写进 `git config`，也别写进仓库里的任何文件** —— CA 路径是本机的，换机器就失效。
 - **沙箱里 gh 的 credential helper 起不来**。全局配置里有
   `credential.https://github.com.helper=!'C:\Program Files\GitHub CLI\gh.exe' auth git-credential`，
   受限沙箱下它会以 `error: failed to execute prompt script (exit code 66)` +
@@ -340,7 +344,9 @@ tarball。
   $pair = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$(gh auth token)"))
   git -c credential.helper= -c http.extraheader="Authorization: Basic $pair" push
   ```
-  token 不要落盘、不要打印；`-c` 只作用于当次命令，不会写进 config。
+  token 不要落盘、不要打印；`-c` 只作用于当次命令，不会写进 config。注意 **`$pair` 本身就是
+  一份可用凭证**，它会出现在进程命令行里（同用户的进程用 `Win32_Process.CommandLine` 就能看到），
+  所以别把它贴进日志、CI 输出或 issue 里。
 - **推送被 `GH007` 拒绝＝提交作者邮箱是私密邮箱**。
   `remote: error: GH007: Your push would publish a private email address.` —— 本机全局
   `user.email` 是一个私密地址，而仓库开了 “block command line pushes that expose my email”。
@@ -350,4 +356,7 @@ tarball。
   git -c user.name=NEVSTOP -c user.email=8196752+nevstop@users.noreply.github.com \
       commit --amend --no-edit --reset-author      # ID 从 gh api user --jq .id 取
   ```
-  已经推上去过再加这个 amend，需要 `--force-with-lease` 重推。
+  `--amend` 只重写**顶端**那一个提交；分支上不止一个提交带私密邮箱时它不够，要么
+  `git rebase --exec 'git commit --amend --no-edit --reset-author' <base>` 逐个重写，
+  要么先在 `git config user.email` 里改成 noreply 再重写整条分支。
+  已经推上去过再加这些改写，需要 `--force-with-lease` 重推。

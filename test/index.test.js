@@ -363,6 +363,21 @@ test('a differently-cased path under a configured path still invalidates', { ski
   assert.equal(session.invalidations(), 1)
 })
 
+test('a relative configured path is not placed before the session has a cwd', async () => {
+  // The session's first observation can arrive before its cwd does. A relative
+  // entry cannot be placed then, and guessing at the process cwd would mark the
+  // wrong directory as a configuration directory.
+  const relative = mount(WORKSPACE, { paths: ['relative-dir'] })
+  const noCwd = { id: 'session-no-cwd', session: { header: {} } }
+  relative.observe(join(process.cwd(), 'relative-dir', 'skills', 'x', 'SKILL.md'), noCwd)
+  assert.equal(relative.invalidations(), 0)
+
+  // An absolute entry still works without a cwd: it needs no resolution.
+  const absolute = mount(WORKSPACE, { paths: [SHARED] })
+  absolute.observe(join(SHARED, 'skills', 'shared-skill', 'SKILL.md'), noCwd)
+  assert.equal(absolute.invalidations(), 1)
+})
+
 test('a tight budget truncates and says what it dropped', async () => {
   const rendered = await mount(WORKSPACE, { maxBytes: 460 }).render()
   assert.match(rendered, /\[truncated\]|omitted by the 460-byte budget/)

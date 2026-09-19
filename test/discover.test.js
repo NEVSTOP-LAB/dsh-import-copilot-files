@@ -156,6 +156,10 @@ test('scanSubdirectories applies to the cwd walk only, never to a configured pat
   })
   assert.deepEqual(roots, [WORKSPACE])
   assert.equal(instructions.some((entry) => entry.content.includes('NESTED-RULE')), false)
+  // `sub-dir/copilot-instructions.md` is the decisive one: a `.github`-only
+  // fixture would stay invisible even if the path's children were walked as
+  // configuration directories.
+  assert.equal(instructions.some((entry) => entry.content.includes('NESTED-DIR-RULE')), false)
   assert.equal(skills.some((skill) => skill.name === 'legacy-skill'), false)
 })
 
@@ -376,6 +380,17 @@ test('no instructionDirs spelling lets a configured path reach its own .github t
 
     const dot = discover({ cwd, scanSubdirectories: 0, paths: [root], instructionDirs: ['.'] })
     assert.ok(dot.instructions.some((entry) => entry.content.includes('OK-DEGENERATE')))
+
+    // A leading `.` segment means "this directory": `./.github/instructions` is
+    // the documented spelling of `<path>/instructions`, not a spelling that
+    // resolves to nothing.
+    const dotted = discover({
+      cwd,
+      scanSubdirectories: 0,
+      paths: [root],
+      instructionDirs: ['./.github/instructions'],
+    })
+    assert.ok(dotted.instructions.some((entry) => entry.content.includes('OK-DEGENERATE')))
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

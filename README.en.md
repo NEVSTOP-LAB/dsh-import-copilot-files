@@ -73,10 +73,10 @@ contributes one.
 
 | Injection panel | Source |
 | --- | --- |
-| **Instruction injection · `import-vscode-ai-files`** | the `.github` instructions, labelled from `source.plugin` |
-| **Skill catalog** | the `.github/skills` entries whose `disable-model-invocation` is not `true` |
+| **Instruction injection · `import-vscode-ai-files`** | the VSCode-style instructions this plugin injects, from the workspace's `.github/` or from a configured directory in `paths`, labelled from `source.plugin` |
+| **Skill catalog** | the `skills/` entries of those configuration directories whose `disable-model-invocation` is not `true` |
 
-The order is fixed: **AGENTS.md first, the `.github` instructions after it**.
+The order is fixed: **AGENTS.md first, the instructions this plugin injects after it**.
 
 A change appends a new injection rather than rewriting the old one, and a file that disappears
 produces an explicit `Instructions removed:` note instead of being dropped silently.

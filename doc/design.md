@@ -117,9 +117,9 @@ source: { kind: 'plugin', plugin: 'import-vscode-ai-files', form: 'instructions'
 
 `agent/pre-step` 是 waterfall，而**所有**注入监听器都插在同一个位置（已领取消息之后），
 所以**谁最后跑谁占前面**。本行在 host 平面、先于 preset 挂载注册，用"插在已领取消息之后"
-会把 `.github` 规则排到 AGENTS.md **前面**。
+会把本插件的规则排到 AGENTS.md **前面**。
 
-因此这里**追加到末尾**：顺序与注册顺序无关 —— AGENTS.md 在前，`.github` 规则在后。
+因此这里**追加到末尾**：顺序与注册顺序无关 —— AGENTS.md 在前，本插件注入的指令在后。
 
 ### 3.4 会话状态按 session id 分桶
 
@@ -255,7 +255,7 @@ props），两条路由都不存在时卡片给一条提示让人手填，不静
 
 ### 5.3 离线
 
-`npm run check`：9 个文件的 `node --check` + 113 项 `node:test`。
+`npm run check`：9 个文件的 `node --check` + 114 项 `node:test`。
 `test/index.test.js` 对着假 Cordis 上下文驱动真实插件对象，覆盖注入顺序、跨会话隔离、
 预算边界、`applyTo` 正反例、移除通知、`paths`，以及**设置服务 → 发现流程**这条端到端链路
 （含 schema 装载失败时回落到组合配置）；`test/discover.test.js` 另外钉住配置目录语义的负例

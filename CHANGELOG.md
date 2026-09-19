@@ -38,8 +38,8 @@
 ### 变更
 
 - **卡片标题改为「导入 VSCode AI 文件」**（[#5](https://github.com/NEVSTOP-LAB/dsh-import-vscode-ai-files/issues/5)）：
-  英文界面为 `Import VSCode AI Files`；卡片的说明与提示同步改成「每行是一个配置目录，等价于
-  项目里的 `.github`」，不再说「项目根」。
+  英文界面为 `Import VSCode AI Files`；卡片的说明改为「把工作区以外的 VSCode AI 配置也加载进来」，
+  提示改成「每行是一个配置目录，等价于项目里的 `.github`」，不再说「项目根」。
 - **卡片改用「插件配置」页其他插件的形态**：折叠的标题栏（名称 + 说明 + 展开箭头，行内显示
   「未保存」标记）、展开后的字段（label + 提示 + 输入框）、右下角的「放弃 / 保存」，字段被
   覆盖时行内给「已覆盖」标记与「恢复默认」。配色、圆角与边框全部走同一套设计 token，
@@ -76,9 +76,9 @@
 
 ### 验证
 
-- `npm run check`：9 个文件的 `node --check` + 113 项 `node:test` 全绿
-  （glob 9 / frontmatter 9 / discover 31 / 插件 38 / 设置 8 / 客户端 bundle 18）。
-  插件那 38 项里包含一条**端到端**：设置服务给出的 `paths` 真的进了发现流程（注入与技能目录），
+- `npm run check`：9 个文件的 `node --check` + 114 项 `node:test` 全绿
+  （glob 9 / frontmatter 9 / discover 31 / 插件 39 / 设置 8 / 客户端 bundle 18）。
+  插件那 39 项里包含一条**端到端**：设置服务给出的 `paths` 真的进了发现流程（注入与技能目录），
   以及 schema 装载失败时组合配置继续生效。客户端那 18 项跑的是**真实的 `lib/client.js`**：
   按客户端模块系统的方式执行 bundle，再驱动 `apply(ctx)` 与卡片组件，覆盖注册 key、折叠/展开、
   暂存、保存（revision + 回读确认）、恢复默认（`unset`）、只读态、两条目录选择路由、
@@ -86,10 +86,12 @@
 - **配置目录语义的负例**都在 `test/discover.test.js` 里：配置目录内部的 `.github` 树
   （copilot / instructions / skills 三样）一律不被采纳 —— 包括 `instructionDirs` 取
   `'.'`、`'.github'`、`'./.github'`、`'x/.github/y'`、`''`、`'/'` 这些退化写法；它的子目录不被
-  当作更多的配置目录；`paths` 指向的目录里的 `AGENTS.md` 不被采纳；两个扫描单位落到同一个
-  源文件时只出现一次（`paths: ['.']` + 自定义目录名）。Windows 上 `.github\instructions` 与
-  `.github/instructions` 等价。插件侧再补两条：「配置目录里的改动会让技能目录失效」，
-  以及大小写不同的同一路径同样会失效。
+  当作更多的配置目录（`sub-dir/copilot-instructions.md` 与 `sub-dir/.github/**` 各放一份负例，
+  只放 `.github` 那种看不见「把子目录当配置目录」的重构）；`paths` 指向的目录里的 `AGENTS.md`
+  不被采纳；两个扫描单位落到同一个源文件时只出现一次（`paths: ['.']` + 自定义目录名）。
+  Windows 上 `.github\instructions` 与 `.github/instructions` 等价。插件侧再补三条：
+  「配置目录里的改动会让技能目录失效」、大小写不同的同一路径同样会失效，以及会话还没有 cwd 时
+  相对路径的条目不会被错误地解析（绝对路径仍然照常生效）。
 - `npm run verify:settings`：拿真实 `@deepseek-ai/schemastery`（本机 Desktop 2.0.11）
   把设置链走一遍 9/9 —— 解析组合配置与用户层、拒绝非法写入、`toJSON()` 信封、
   **从信封重建并校验**（浏览器渲染卡片走的就是这一步），以及两半的 namespace 是同一个字符串。
