@@ -306,3 +306,48 @@ tarball。
 - **Windows 上 git push 可能需要 TLS 兜底**。schannel 在某些环境取不到凭证
   （`SEC_E_NO_CREDENTIALS`，`curl.exe` 同样失败），换 OpenSSL 后端 + 从系统证书库导出的
   CA 即可：`git -c http.sslBackend=openssl -c http.sslCAInfo=<ca.pem> push`。
+  实测细节（2026-09-19，本机）：
+  - **症状**：`fatal: unable to access 'https://github.com/…': schannel: AcquireCredentialsHandle
+    failed: SEC_E_NO_CREDENTIALS (0x8009030E)`。
+  - **原因**：本机 TLS 被本地工具箱**中间人**（presented chain 的 issuer 是 `SteamTools
+    Certificate`）。该根证书装在 Windows 证书store 里，所以浏览器、`gh`、Go 程序都正常，
+    只有走 schannel 的 git 不行。
+  - **怎么看出来**：`openssl s_client` 在受限沙箱里**跑不起来**（Cygwin 进程起不来 signal
+    pipe，`Win32 error 5`，只有一坨 stack trace），改用 node 探针：
+    ```js
+    tls.connect({ host: 'github.com', port: 443, servername: 'github.com', rejectUnauthorized: false },
+      () => { console.log(s.getPeerCertificate(true).issuer) })
+    ```
+  - **修**：把**拦截方**的根证书导成 PEM 再换后端。用 `-c http.sslCAInfo=<Git 自带
+    ca-bundle.crt>` 会得到 `SSL certificate problem: unable to get local issuer certificate`
+    —— 那是 CA 选错了，不是网络不通。导出（`Subject` 换成上面看到的 issuer）：
+    ```powershell
+    $pem = (Get-ChildItem Cert:\CurrentUser\Root, Cert:\LocalMachine\Root |
+      Where-Object { $_.Subject -like '*SteamTools*' } | ForEach-Object {
+        $b = $_.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
+        "-----BEGIN CERTIFICATE-----`n" + [Convert]::ToBase64String($b, 'InsertLineBreaks') + "`n-----END CERTIFICATE-----"
+      }) -join "`n"
+    [System.IO.File]::WriteAllText("$env:TEMP\intercept-ca.pem", $pem)
+    ```
+    然后：`git -c http.sslBackend=openssl -c http.sslCAInfo="$env:TEMP\intercept-ca.pem" push`。
+    **别把它写进 `git config` 或 `.gitignore` 之外的仓库文件** —— CA 路径是本机的，换机器就失效。
+- **沙箱里 gh 的 credential helper 起不来**。全局配置里有
+  `credential.https://github.com.helper=!'C:\Program Files\GitHub CLI\gh.exe' auth git-credential`，
+  受限沙箱下它会以 `error: failed to execute prompt script (exit code 66)` +
+  `fatal: could not read Username for 'https://github.com'` 结束 —— 看起来像认证失败，其实是
+  那个子进程没起来。绕过：**关掉 helper**，用 `gh auth token` 直接给一次性的授权头
+  ```powershell
+  $pair = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$(gh auth token)"))
+  git -c credential.helper= -c http.extraheader="Authorization: Basic $pair" push
+  ```
+  token 不要落盘、不要打印；`-c` 只作用于当次命令，不会写进 config。
+- **推送被 `GH007` 拒绝＝提交作者邮箱是私密邮箱**。
+  `remote: error: GH007: Your push would publish a private email address.` —— 本机全局
+  `user.email` 是一个私密地址，而仓库开了 “block command line pushes that expose my email”。
+  本仓库历史用的是 noreply 地址，照抄它：
+  ```powershell
+  git log -3 --format='%an <%ae>'                 # 先看历史用的是哪一种
+  git -c user.name=NEVSTOP -c user.email=8196752+nevstop@users.noreply.github.com \
+      commit --amend --no-edit --reset-author      # ID 从 gh api user --jq .id 取
+  ```
+  已经推上去过再加这个 amend，需要 `--force-with-lease` 重推。
