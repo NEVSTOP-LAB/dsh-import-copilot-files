@@ -42,26 +42,47 @@ preset 平面看起来更"就近"（一次会话一实例），但**走不通**�
 
 ### 3.1 发现与作用域
 
-`lib/discover.js` 以会话 cwd 为起点，把 cwd 本身和它下面 `scanSubdirectories` 层（默认 1）
-的直接子目录各当作一个**项目根**，每个根取自己的 `.github/`。
-`.github/instructions/` 内部递归到深度 4。
+扫描的单位是**配置目录** —— 一个按 `.github` 摆放的目录（`copilot-instructions.md`、
+`instructions/`、`skills/`）。两种东西会产生它：
 
-`paths` 里的每个路径**按完全相同的 walk 再扫一遍**（它自己 + 同样层数），所以「工作区外的共享
-规则」不需要第二套代码路径。路径相对 cwd 解析；不存在的路径贡献为空——发现是「读盘上有什么」，
-不是报错。**已经访问过的目录不会被走第二遍**：第二遍会拿到一整层全新的下探预算，从而多扫出
-一层本来不该有的目录（点名 cwd 的直接子目录就会把它的子目录也拉进来）。反过来，比 cwd 预算
-更深、但被 `paths` 点名的路径仍会被扫——点名就是请求。
+- **cwd 走查**：cwd 本身和它下面 `scanSubdirectories` 层（默认 1）的直接子目录各是一个
+  **项目根**，配置目录是 `<根>/.github`。`.github/instructions/` 内部递归到深度 4。
+- **`paths` 条目**：每个条目**就是**配置目录（等价于项目根的 `.github`，它下面不再有
+  `.github` 段）。`instructionDirs` / `skillDirs` 拼到它上面时先去前导的 `.` 段、再去前导的
+  `.github` 段，其余部分原样拼接（cwd 侧不剥离、仍旧拼到项目根上，所以 `custom/rules` 这类
+  自定义目录在两侧都按原样拼接）；剩下的部分里若**仍含** `.github` 段（`x/.github/y`）该条目
+  被拒绝，而走查本身在配置目录上跳过隐藏目录 —— 于是 `.github`、`.`、`./.github`、`''`、`/`
+  这些退化写法都落在配置目录上、却依然读不到它内部的 `.github` 树。这里跳过的是隐藏目录与
+  `node_modules`（与 `listDirectories` 一致）；cwd 侧的项目根走查**没有**这层过滤，两边刻意
+  不对称：配置目录里的点目录是内容，而项目根里的 `.github` 正是配置本身。另外注意这条说的是
+  **条目自身的走查** —— 若该目录同时落在 cwd 走查范围内，那棵树仍可能以项目根 `.github` 的
+  身份被读到，那是另一侧的规则。`scanSubdirectories` 不作用于它 —— 它的子目录是内容而不是更多
+  的配置目录。
+
+两类只在 `rootDir`（`applyTo` 的匹配锚点）上分叉：cwd 侧是项目根，`paths` 侧是该条目自身。
+除此之外共用一条代码路径，所以「工作区外的共享规则」不需要第二套实现，`.github` 语义也不会
+在两侧漂移。两个单位可能解析到**同一个源文件**（`paths` 点名一个已在走查里的目录，而
+`instructionDirs` 不以 `.github` 开头时两侧的基目录相同）——发现结果按绝对路径去重，只保留
+第一个单位，因此那条记录的 `rootDir` 也取自第一个单位：自定义 `instructionDirs` 时，子项目根
+里那份文件的 `applyTo` 锚点会落在父根上。路径相对 cwd 解析；不存在的路径贡献为空 —— 发现是「读盘上有什么」，不是报错。
+**已经扫过的配置目录不会被走第二遍**（cwd 走查已经读过每个项目根的 `.github`，再点名它等于
+没点；重复点名同一个条目同理）。比 cwd 预算更深、但被 `paths` 点名的目录仍会被扫 ——
+点名就是请求。
 
 这样 `D:\NEVSTOP-LAB` 这类「多 repo 工作文件夹」就成立，且各 repo 互不干扰。
 **刻意不向上找祖先链** —— 这与 DSH 原生 `dsh-agent-instructions` 的语义不同
 （它按 project root → cwd 的祖先链找 `<dir>/<candidate>`）。两者混用会产生难以解释的
 重复与遗漏，所以本插件自己管全部三类文件，行为一致、可解释。
 
+**AGENTS.md 是刻意的边界**：它由核心按上面那条祖先链读取，只在当前工作目录这条链上生效，
+`paths` 与子目录根都不贡献它（`lib/discover.js` 里根本没有这个名字，负例由
+`test/discover.test.js` 钉住）。
+
 cwd 之下的文件用相对路径做标题；`paths` 扫到的文件不在 cwd 下，`..\..` 链说不清位置，
-于是用**绝对路径**（正斜杠化）做标题。`applyTo` 仍旧相对**该文件所属的项目根**匹配 ——
-否则 `src/*.ts` 这种模式在子 repo 或共享目录里永远匹配不上。`lib/glob.js` 实现了
-`**`、`*`、`?`、`{a,b}`、`[abc]`，并且**按括号深度切分逗号**（朴素的 `split(',')` 会把
-最常见的 `**/*.{ts,tsx}` 切成两半）。
+于是用**绝对路径**（正斜杠化）做标题。`applyTo` 相对**该文件所属的配置目录的锚点**匹配 ——
+cwd 侧是项目根，`paths` 侧是该条目自身 —— 否则 `src/*.ts` 这种模式在子 repo 或共享目录里
+永远匹配不上。`lib/glob.js` 实现了 `**`、`*`、`?`、`{a,b}`、`[abc]`，并且**按括号深度切分
+逗号**（朴素的 `split(',')` 会把最常见的 `**/*.{ts,tsx}` 切成两半）。
 
 没有 `applyTo` 的文件常驻；有的只在会话**真的观察过**匹配文件之后才注入。
 「观察过」来自 `fs/observed`。
@@ -96,9 +117,9 @@ source: { kind: 'plugin', plugin: 'import-vscode-ai-files', form: 'instructions'
 
 `agent/pre-step` 是 waterfall，而**所有**注入监听器都插在同一个位置（已领取消息之后），
 所以**谁最后跑谁占前面**。本行在 host 平面、先于 preset 挂载注册，用"插在已领取消息之后"
-会把 `.github` 规则排到 AGENTS.md **前面**。
+会把本插件的规则排到 AGENTS.md **前面**。
 
-因此这里**追加到末尾**：顺序与注册顺序无关 —— AGENTS.md 在前，`.github` 规则在后。
+因此这里**追加到末尾**：顺序与注册顺序无关 —— AGENTS.md 在前，本插件注入的指令在后。
 
 ### 3.4 会话状态按 session id 分桶
 
@@ -122,8 +143,10 @@ host 平面只有**一个实例服务所有会话**，所以每个会话的 `cwd
   `references/` 可被引用。
 - `disable-model-invocation` / `user-invocable` 与原生语义一致；拼写非法则丢弃该技能并告警。
 
-目录失效：provider 是全局的、一个实例服务所有工作区，所以**任何** `.github` 路径的观察
-都会调用 `control.invalidate()`，而不是只认当前会话 cwd 下的。
+目录失效：provider 是全局的、一个实例服务所有工作区，所以**任何配置目录**的观察都会调用
+`control.invalidate()`，而不是只认当前会话 cwd 下的。配置目录有两种形状 —— `.github` 树，
+以及 `paths` 条目自身（它没有 `.github` 段）—— 只匹配前者会让共享目录里改技能永远不刷新，
+所以 `index.js` 的 `touchesConfigDir` 两种都认。
 
 ### 3.6 字节预算
 
@@ -202,7 +225,7 @@ props），两条路由都不存在时卡片给一条提示让人手填，不静
 | 文件 | 职责 |
 | --- | --- |
 | `index.js` | 插件入口：`agent/pre-step` 注入、skill provider、`fs/observed`、设置命名空间的接线 |
-| `lib/discover.js` | 扫描项目根（cwd 与 `paths`），产出 instructions 与 skills |
+| `lib/discover.js` | 扫描配置目录（cwd 各项目根的 `.github`，以及本身就是配置目录的 `paths` 条目），产出 instructions 与 skills |
 | `lib/frontmatter.js` | 极简 YAML frontmatter（标量、引号、`\|` `>` 块、行内与列表数组、注释） |
 | `lib/glob.js` | `applyTo` 的 glob → RegExp，含括号感知的逗号切分 |
 | `lib/settings.js` | 设置命名空间的 schema（`z` 由调用方传入，所以本文件可离线测试） |
@@ -232,12 +255,15 @@ props），两条路由都不存在时卡片给一条提示让人手填，不静
 
 ### 5.3 离线
 
-`npm run check`：9 个文件的 `node --check` + 103 项 `node:test`。
+`npm run check`：9 个文件的 `node --check` + 114 项 `node:test`。
 `test/index.test.js` 对着假 Cordis 上下文驱动真实插件对象，覆盖注入顺序、跨会话隔离、
 预算边界、`applyTo` 正反例、移除通知、`paths`，以及**设置服务 → 发现流程**这条端到端链路
-（含 schema 装载失败时回落到组合配置）；`test/settings.test.js` 用注入的 schema loader 钉住
+（含 schema 装载失败时回落到组合配置）；`test/discover.test.js` 另外钉住配置目录语义的负例
+（条目内部的 `.github` 树一律不读、它的子目录不是配置目录、AGENTS.md 从不被读、两个单位落到
+同一个源文件时只出现一次、退化目录取值与 Windows 写法都不越界）；
+`test/settings.test.js` 用注入的 schema loader 钉住
 命名空间接线（含 loader 失败与 dispose 的降级路径）；`test/client.test.js` 按客户端模块系统的
-方式**跑真实 bundle**（假 `__ModuleLoader__` + React 替身），覆盖卡片注册、折叠/展开、
+方式**跑真实 bundle**（假 `__ModuleLoader__` + React 替身），覆盖卡片注册与标题、折叠/展开、
 暂存/保存（含 revision 与回读确认）、只读态、恢复默认、两条目录选择路由与选择失败时的提示、
 样式安装/卸载。
 
@@ -272,8 +298,17 @@ schema 这条链跑通 9/9：解析组合配置与用户层、拒绝非法写入
   设置服务落进 DSH 自己的用户设置文档。
 - **卡片只覆盖 `paths`**：`maxBytes`、`scanSubdirectories`、`instructionDirs`、`skillDirs`
   仍然只能在组合配置里改（改完要重启，因为 profile patch 层不热重载）。
-- **不做路径展开**：`paths` 是普通目录路径，不解析 `~`、不通配符、不展开环境变量；
+- **不做路径展开**：`paths` 的条目是普通目录路径，不解析 `~`、不通配符、不展开环境变量；
   相对路径相对会话 cwd 解析，所以「相对路径」在不同会话里指向不同位置，写绝对路径更稳。
+- **`paths` 是配置目录，不是项目根**：一个条目恰好是一个配置目录（等价于项目根的 `.github`），
+  `scanSubdirectories` 不作用于它，它内部的 `.github` 树不被**条目自身的走查**读取（若它同时
+  也在 cwd 走查范围内，那棵树仍可能以项目根 `.github` 的身份被读到），它下面的子目录也不会被
+  当作更多的配置目录。该字段尚未随任何版本发布（见 CHANGELOG），所以没有需要迁移的旧配置；
+  把工作区外的仓库根改写成 `paths: [<repo>/.github]` 会同时把 `applyTo` 锚点从仓库根移到
+  `.github`。
+- **不处理 `AGENTS.md`**：它属于核心的 `dsh-agent-instructions`（project root → cwd 祖先链），
+  只在当前工作目录这条链上生效；`paths` 与子目录根都不贡献 AGENTS.md。想要共享的 AGENTS.md
+  只能靠核心自己的机制，不是这个插件的事。
 - **不覆盖** `.github/prompts/*.prompt.md`、`.github/agents|chatmodes/*.md`、
   `.vscode/settings.json` 里的指令路径，也不兼容 `.claude/skills` 等其他技能根。
 - **子 agent 也会注入**：host 平面注册是全局的，所以子 agent 的组装同样带这些指令。

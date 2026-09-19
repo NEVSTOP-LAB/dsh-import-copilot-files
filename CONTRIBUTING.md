@@ -28,7 +28,7 @@ dsh-import-vscode-ai-files/
 ├── cordis.patch.yml     # 组合层：插入插件行
 ├── index.js             # 插件入口：指令注入 + skill provider + fs/observed + 设置接线
 ├── lib/
-│   ├── discover.js      # 扫描 cwd / paths + 直接子目录，产出 instructions 与 skills
+│   ├── discover.js      # 扫描配置目录（cwd 各项目根的 .github + paths 条目自身），产出 instructions 与 skills
 │   ├── frontmatter.js   # 极简 YAML frontmatter
 │   ├── glob.js          # applyTo 的极简 glob → RegExp
 │   ├── settings.js      # 设置命名空间的 schema（z 由调用方传入，可离线测试）
@@ -74,6 +74,9 @@ npm test          # node --test test/
 > 那种环境下逐个文件直接跑即可，六个测试文件都支持单独执行：
 > `node test/glob.test.js`、`node test/frontmatter.test.js`、`node test/discover.test.js`、
 > `node test/index.test.js`、`node test/settings.test.js`、`node test/client.test.js`。
+> 另外 Windows 检出默认 `core.autocrlf=true`，fixture 在盘上是 CRLF，所以对正文做逐字
+> 比较的断言要先按 EOL 归一化（`test/index.test.js` 里那条就是），否则 `npm run check`
+> 会在一台机器上红、在 CI（ubuntu）上绿。
 
 ### 2.1 测试用什么驱动
 
@@ -112,14 +115,15 @@ npm test          # node --test test/
 
 1. `npm run pack`，再 `dsh plugin --profile <p> add ./dist/dsh-import-vscode-ai-files-<v>.tgz`，
    然后**重启 DSH**（profile patch 层不热重载）。
-2. 打开 **设置 → 插件 → 插件配置**，确认本插件那张卡片出现，标题与「导入其他位置的 AI 文件」
-   一致 —— 出现本身就说明四件事同时成立：host 注册了 namespace、`dsh.client` 被扫描到、
-   bundle 被 `/plugins` 提供、卡片的 slot key 与 namespace 相同。
+2. 打开 **设置 → 插件 → 插件配置**，确认本插件那张卡片出现，标题与「导入 VSCode AI 文件」
+   （英文界面 `Import VSCode AI Files`）一致 —— 出现本身就说明四件事同时成立：host 注册了
+   namespace、`dsh.client` 被扫描到、bundle 被 `/plugins` 提供、卡片的 slot key 与 namespace 相同。
 3. 点开卡片的标题栏，确认展开后的字段与页脚，以及行内的「浏览…」：在 DSH Desktop 窗口里按它
    应弹出 Windows 系统选择框，选中的目录直接填进那一行（仍是未保存的草稿，要再点「保存」）。
-4. 加一个真实存在的共享目录、保存，然后确认两件事：`$DSH_HOME/settings.yaml` 里出现
+4. 加一个真实存在的共享配置目录、保存，然后确认两件事：`$DSH_HOME/settings.yaml` 里出现
    `import-vscode-ai-files:` 小节；新会话的「指令注入」行里出现该目录下的指令
-   （标题是绝对路径）。
+   （标题是绝对路径）。注意该目录**自己**就是 `.github` 的等价物：直接放
+   `copilot-instructions.md`、`instructions/`、`skills/`，不要在它下面再建 `.github`。
 5. 「恢复默认」（字段被覆盖时才出现）应清掉用户覆盖，值回到 `cordis.patch.yml`；
    「放弃」只应丢弃未保存的草稿，不动已存储的值。
 6. 未实测清单见 §4.2——**做完这几步就把对应条目划掉**。
@@ -265,8 +269,18 @@ tarball。
   隔离，于是两个含它的 preset 无法在同一进程共存。实测：把同一份 composition 里唯一一行
   `tool-cordis` 禁用后 `standingKeyFor` 立即 `mounted OK`，不禁用则报
   `inspect provider "Service" is already registered`。
-- **目录失效不能绑在会话 cwd 上**。provider 是全局的、一个实例服务所有工作区，所以任何
-  `.github` 变更都要让它失效，而不只是当前会话 cwd 下的。
+- **目录失效不能绑在会话 cwd 上，也不能只认 `.github`**。provider 是全局的、一个实例服务所有
+  工作区，所以任何配置变更都要让它失效，而不只是当前会话 cwd 下的；而且 `paths` 条目**自己**
+  就是配置目录，路径里没有 `.github` 段 —— 只匹配 `/.github/` 会让共享目录里改技能永远不刷新。
+  `touchesConfigDir` 两种形状都认（`index.js`），`test/index.test.js` 各钉一条。
+- **`paths` 条目是配置目录，不是项目根**。`instructionDirs` / `skillDirs` 在它上面会去掉前导的
+  `.` 段与 `.github` 段（win32 上 `\` 与 `/` 都接受，`custom/rules` 这类自定义目录原样拼接），
+  `scanSubdirectories` 不作用于它，它的子目录是内容而不是更多的配置目录；它内部的 `.github`
+  树一律不被读取 —— 连 `'.'`、`'./.github'`、`'x/.github/y'`、`''`、`'/'` 这些退化写法也不行
+  （fixture 里就放着这样一棵树当负例）。改 `lib/discover.js` 的扫描模型时，cwd 侧与 `paths` 侧
+  只在 `rootDir`（`applyTo` 的锚点）上分叉，别让两边的 `.github` 语义漂移；另外两个单位可能
+  解析到同一个源文件（`paths` 点名一个已在走查里的目录 + 自定义目录名），发现结果按绝对路径
+  去重，别把同一个文件注入两次。
 - **`disable-model-invocation: true` 会让技能不进目录**。这是既定语义，不是插件 bug；
   想让模型看到就不要写这一行（或写 `false`）。
 - **卡片的 slot key 必须等于设置命名空间**。`settings.plugin.item` 是按 namespace 派发的：
@@ -292,3 +306,57 @@ tarball。
 - **Windows 上 git push 可能需要 TLS 兜底**。schannel 在某些环境取不到凭证
   （`SEC_E_NO_CREDENTIALS`，`curl.exe` 同样失败），换 OpenSSL 后端 + 从系统证书库导出的
   CA 即可：`git -c http.sslBackend=openssl -c http.sslCAInfo=<ca.pem> push`。
+  实测细节（2026-09-19，本机）：
+  - **症状**：`fatal: unable to access 'https://github.com/…': schannel: AcquireCredentialsHandle
+    failed: SEC_E_NO_CREDENTIALS (0x8009030E)`。
+  - **原因**：本机 TLS 被本地工具箱**中间人**（presented chain 的 issuer 是 `SteamTools
+    Certificate`）。该根证书装在 Windows 证书store 里，所以浏览器、`gh`、Go 程序都正常，
+    只有走 schannel 的 git 不行。
+  - **怎么看出来**：`openssl s_client` 在受限沙箱里**跑不起来**（Cygwin 进程起不来 signal
+    pipe，`Win32 error 5`，只有一坨 stack trace），改用 node 探针（注意 `s` 要先绑定，
+    回调里才拿得到 `s`，否则是回调内抛 `ReferenceError`，外面 try/catch 也拦不住）：
+    ```js
+    import tls from 'node:tls'
+    const s = tls.connect(
+      { host: 'github.com', port: 443, servername: 'github.com', rejectUnauthorized: false },
+      () => { console.log(s.getPeerCertificate(true).issuer) },
+    )
+    ```
+  - **修**：把**拦截方**的根证书导成 PEM 再换后端。用 `-c http.sslCAInfo=<Git 自带
+    ca-bundle.crt>` 会得到 `SSL certificate problem: unable to get local issuer certificate`
+    —— 那是 CA 选错了，不是网络不通。导出（`Subject` 换成上面看到的 issuer）：
+    ```powershell
+    $pem = (Get-ChildItem Cert:\CurrentUser\Root, Cert:\LocalMachine\Root |
+      Where-Object { $_.Subject -like '*SteamTools*' } | ForEach-Object {
+        $b = $_.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
+        "-----BEGIN CERTIFICATE-----`n" + [Convert]::ToBase64String($b, 'InsertLineBreaks') + "`n-----END CERTIFICATE-----"
+      }) -join "`n"
+    [System.IO.File]::WriteAllText("$env:TEMP\intercept-ca.pem", $pem)
+    ```
+    然后：`git -c http.sslBackend=openssl -c http.sslCAInfo="$env:TEMP\intercept-ca.pem" push`。
+    **别把它写进 `git config`，也别写进仓库里的任何文件** —— CA 路径是本机的，换机器就失效。
+- **沙箱里 gh 的 credential helper 起不来**。全局配置里有
+  `credential.https://github.com.helper=!'C:\Program Files\GitHub CLI\gh.exe' auth git-credential`，
+  受限沙箱下它会以 `error: failed to execute prompt script (exit code 66)` +
+  `fatal: could not read Username for 'https://github.com'` 结束 —— 看起来像认证失败，其实是
+  那个子进程没起来。绕过：**关掉 helper**，用 `gh auth token` 直接给一次性的授权头
+  ```powershell
+  $pair = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$(gh auth token)"))
+  git -c credential.helper= -c http.extraheader="Authorization: Basic $pair" push
+  ```
+  token 不要落盘、不要打印；`-c` 只作用于当次命令，不会写进 config。注意 **`$pair` 本身就是
+  一份可用凭证**，它会出现在进程命令行里（同用户的进程用 `Win32_Process.CommandLine` 就能看到），
+  所以别把它贴进日志、CI 输出或 issue 里。
+- **推送被 `GH007` 拒绝＝提交作者邮箱是私密邮箱**。
+  `remote: error: GH007: Your push would publish a private email address.` —— 本机全局
+  `user.email` 是一个私密地址，而仓库开了 “block command line pushes that expose my email”。
+  本仓库历史用的是 noreply 地址，照抄它：
+  ```powershell
+  git log -3 --format='%an <%ae>'                 # 先看历史用的是哪一种
+  git -c user.name=NEVSTOP -c user.email=8196752+nevstop@users.noreply.github.com \
+      commit --amend --no-edit --reset-author      # ID 从 gh api user --jq .id 取
+  ```
+  `--amend` 只重写**顶端**那一个提交；分支上不止一个提交带私密邮箱时它不够，要么
+  `git rebase --exec 'git commit --amend --no-edit --reset-author' <base>` 逐个重写，
+  要么先在 `git config user.email` 里改成 noreply 再重写整条分支。
+  已经推上去过再加这些改写，需要 `--force-with-lease` 重推。

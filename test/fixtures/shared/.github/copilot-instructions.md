@@ -1,5 +1,4 @@
-# Shared rules
+# LEGACY-RULE
 
-This file lives outside every workspace and applies whenever its folder is configured.
-
-- Shared rule: keep the shared convention.
+A configured path IS the `.github`-equivalent directory, so this file must never
+be read. It exists to pin that negative.
