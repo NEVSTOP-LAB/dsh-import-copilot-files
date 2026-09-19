@@ -79,8 +79,14 @@ The plugin row lives in [`cordis.patch.yml`](./cordis.patch.yml); its `config` f
 
 `paths` is also a field of the plugin's settings namespace (`import-vscode-ai-files`), so the
 card for this plugin appears under **Settings → Plugins → plugin configuration**: add, edit and
-remove paths, then save, discard, or reset to the deployment default.
+remove paths, then save, discard, or reset to the deployment default. The card has the same shape
+as every other card on that page: a collapsed header that discloses the fields, the
+add / browse / remove row, and discard / save in the footer.
 
+- *Browse* opens a folder chooser through **whichever route the deployment can serve**: the DSH
+  Desktop window uses its own Windows chooser, every other composition uses the host's native
+  picker. Where neither exists the card says so and you type the path — a press never ends in
+  silence.
 - The card edits `paths` only; `maxBytes`, `scanSubdirectories`, `instructionDirs` and
   `skillDirs` stay composition-only.
 - What it writes is DSH's own **user settings document** (the `import-vscode-ai-files:` section

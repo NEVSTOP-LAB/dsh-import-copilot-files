@@ -115,12 +115,14 @@ npm test          # node --test test/
 2. 打开 **设置 → 插件 → 插件配置**，确认本插件那张卡片出现，标题与「导入其他位置的 AI 文件」
    一致 —— 出现本身就说明四件事同时成立：host 注册了 namespace、`dsh.client` 被扫描到、
    bundle 被 `/plugins` 提供、卡片的 slot key 与 namespace 相同。
-3. 加一个真实存在的共享目录、保存，然后确认两件事：`$DSH_HOME/settings.yaml` 里出现
+3. 点开卡片的标题栏，确认展开后的字段与页脚，以及行内的「浏览…」：在 DSH Desktop 窗口里按它
+   应弹出 Windows 系统选择框，选中的目录直接填进那一行（仍是未保存的草稿，要再点「保存」）。
+4. 加一个真实存在的共享目录、保存，然后确认两件事：`$DSH_HOME/settings.yaml` 里出现
    `import-vscode-ai-files:` 小节；新会话的「指令注入」行里出现该目录下的指令
    （标题是绝对路径）。
-4. 「恢复默认」（字段被覆盖时才出现）应清掉用户覆盖，值回到 `cordis.patch.yml`；
+5. 「恢复默认」（字段被覆盖时才出现）应清掉用户覆盖，值回到 `cordis.patch.yml`；
    「放弃」只应丢弃未保存的草稿，不动已存储的值。
-5. 未实测清单见 §4.2——**做完这几步就把对应条目划掉**。
+6. 未实测清单见 §4.2——**做完这几步就把对应条目划掉**。
 
 ## 3. 依赖面与兼容性
 
@@ -152,6 +154,7 @@ npm test          # node --test test/
 | 已触及文件 + 目录失效 | `ctx.on('fs/observed', …)` |
 | 设置命名空间（可选服务） | `ctx.inject(['settings'], …)` → `settings.installSection(…)` |
 | 设置卡片（browser half） | `ctx.settingsScope.bind({ namespace })`、`ctx.slots.register({ name: 'settings.plugin.item', key })`、`ctx.locale.register` |
+| 卡片的「浏览…」（browser half） | `ctx.get('uiWorkspace').pickDirectory()`，或 DSH Desktop 在 win32 页面上装的 `window.__DSH_DESKTOP_PICK_DIRECTORY__` |
 
 接缝之外还有三处**内部契约**：
 
@@ -187,7 +190,10 @@ turn。第三处没有 try/catch 可包：key 与 namespace 不一致时卡片**
    `dsh-client-ui-settings` 的 `bind(spec)` 与 scope 方法、`dsh-client-modules` 对
    `dsh.client`（`platform` / `exports['./client']`）的解析规则。这三处是本插件唯一
    「跟着上游内部形状走」的地方。
-7. 先跑 `npm run check` 排除自己的逻辑回归。
+7. 卡片的目录选择：`uiWorkspace.pickDirectory()` 还在不在，以及 win32 的 DSH Desktop
+   profile 是否仍然禁用 `dsh-host-directory-picker-auto`（改挂 `browse` 后端时
+   `pick` 会被 Remote 拒绝），`window.__DSH_DESKTOP_PICK_DIRECTORY__` 是否仍被安装。
+8. 先跑 `npm run check` 排除自己的逻辑回归。
 
 ### 4.1 校验记录
 
@@ -220,13 +226,17 @@ node scripts/verify-settings-schema.mjs --schemastery <specifier-or-path>
 这些是本轮**没有**在运行中的 DSH 里跑过的，代码按实现写，但没到「看见它工作」的程度：
 
 - [ ] 卡片真的出现在 **设置 → 插件 → 插件配置** 里（要重装插件 + 重启 DSH，见 §2.3）。
+- [ ] 展开后的卡片样式与同页其他插件的卡片一致（本轮按宿主的 `PluginCard` 样式表逐类对齐，
+      但没在真实 GUI 里比对过）。
+- [ ] 「浏览…」在 DSH Desktop 窗口里弹出 Windows 选择框并填回该行；两条路由都不可用的部署
+      （如远程浏览器访问的 `browse` 组合）显示提示而不是无反应。
 - [ ] 保存后 `$DSH_HOME/settings.yaml` 里出现 `import-vscode-ai-files:` 小节，
       且下一个模型步骤开始生效。
 - [ ] 「恢复默认」清掉用户覆盖、值回到组合配置（「放弃」只丢弃草稿）。
 - [ ] `ctx.settings.installSection` 在 provider 卸载/重挂时的行为（`register` 对重复
       namespace 会抛错，上游没有文档说明它是否在两者之间 dispose）。
 
-§2.3 的手工流程覆盖前三条；最后一条只有升级 DSH 或改动设置这条链时才需要重新确认。
+§2.3 的手工流程覆盖前五条；最后一条只有升级 DSH 或改动设置这条链时才需要重新确认。
 `npm run verify:settings`（§4.2）已经覆盖了「浏览器能不能重建 schema」这条 —— 它此前也在
 这份清单里，现在有命令可跑，就不再是「未实测」。
 
@@ -262,6 +272,13 @@ tarball。
 - **卡片的 slot key 必须等于设置命名空间**。`settings.plugin.item` 是按 namespace 派发的：
   key 写错不会报错，卡片只是永远不出现。host 侧的 `SETTINGS_NAMESPACE`（`index.js`）与
   browser 侧的 `NAMESPACE`（`lib/client.js`）是同一个字符串的两份硬编码，改一个必须改另一个。
+- **「浏览…」不能只走一条路由**。win32 的 DSH Desktop profile 禁用了
+  `dsh-host-directory-picker-auto`，改挂 `browse` 后端，而 `browse` 没有 `pick` 能力：
+  `uiWorkspace.pickDirectory()` 在那里**必然被拒**（`directory-picker/unavailable`）。
+  可用的两条路由是 `window.__DSH_DESKTOP_PICK_DIRECTORY__`（Desktop / win32）与
+  `uiWorkspace.pickDirectory()`（挂 `native` 后端的组合），两条都在时以前者为准 ——
+  否则一次「浏览」会弹两次框。两条都不在时卡片给提示让人手填，**不吞掉 rejection**：
+  `void browse().then(...)` 那种写法在按钮上表现为「点了没反应」。
 - **设置 schema 不能自己写一个「形状像」的对象**。服务本身不检查 schema 的形状，所以手写的
   能通过 host；但浏览器要靠 `schema.toJSON()` 的 `{ uid, refs }` 信封把它重建出来渲染表单，
   重建失败时该 namespace **没有可编辑值**（`decode` 返回 undefined，卡片只能渲染空态），
