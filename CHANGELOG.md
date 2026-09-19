@@ -28,6 +28,22 @@
   - 卡片只覆盖 `paths`；其余字段仍只在组合配置里。
   - `settings` 服务不可用时，插件照常按组合配置运行，只是没有这张卡片。
 
+### 变更
+
+- **卡片改用「插件配置」页其他插件的形态**：折叠的标题栏（名称 + 说明 + 展开箭头，行内显示
+  「未保存」标记）、展开后的字段（label + 提示 + 输入框）、右下角的「放弃 / 保存」，字段被
+  覆盖时行内给「已覆盖」标记与「恢复默认」。配色、圆角与边框全部走同一套设计 token，
+  与宿主自己的 `PluginCard` 逐类对齐；保存被宿主接受后卡片自动收起。
+
+### 修复
+
+- **「浏览…」不再点了没反应**：DSH Desktop 在 Windows 上禁用自适应选择器、改挂 `browse`
+  后端，而 `browse` 没有 `pick` 能力 —— `uiWorkspace.pickDirectory()` 在那里必然被拒，
+  旧的 `void browse().then(…)` 会把这次 rejection 丢进控制台，按钮看上去是坏的。
+  现在按部署能用的路由取目录：DSH Desktop 窗口用它自己的 Windows 选择框
+  （`window.__DSH_DESKTOP_PICK_DIRECTORY__`），其余组合走宿主的原生选择器；两条都不存在时
+  卡片显示一条提示让人手填路径。
+
 ### 设计取舍
 
 - **schema 必须是真 schemastery，且惰性加载**：浏览器要靠 `schema.toJSON()` 的
@@ -39,12 +55,13 @@
 
 ### 验证
 
-- `npm run check`：9 个文件的 `node --check` + 96 项 `node:test` 全绿
-  （glob 9 / frontmatter 9 / discover 24 / 插件 35 / 设置 8 / 客户端 bundle 11）。
+- `npm run check`：9 个文件的 `node --check` + 103 项 `node:test` 全绿
+  （glob 9 / frontmatter 9 / discover 24 / 插件 35 / 设置 8 / 客户端 bundle 18）。
   插件那 35 项里包含一条**端到端**：设置服务给出的 `paths` 真的进了发现流程（注入与技能目录），
-  以及 schema 装载失败时组合配置继续生效。客户端那 11 项跑的是**真实的 `lib/client.js`**：
-  按客户端模块系统的方式执行 bundle，再驱动 `apply(ctx)` 与卡片组件，覆盖注册 key、暂存、
-  保存（revision + 回读确认）、恢复默认（`unset`）、只读态、样式安装/卸载。
+  以及 schema 装载失败时组合配置继续生效。客户端那 18 项跑的是**真实的 `lib/client.js`**：
+  按客户端模块系统的方式执行 bundle，再驱动 `apply(ctx)` 与卡片组件，覆盖注册 key、折叠/展开、
+  暂存、保存（revision + 回读确认）、恢复默认（`unset`）、只读态、两条目录选择路由、
+  选择被拒时的提示与取消时不动草稿、样式安装/卸载。
 - `npm run verify:settings`：拿真实 `@deepseek-ai/schemastery`（本机 Desktop 2.0.11）
   把设置链走一遍 9/9 —— 解析组合配置与用户层、拒绝非法写入、`toJSON()` 信封、
   **从信封重建并校验**（浏览器渲染卡片走的就是这一步），以及两半的 namespace 是同一个字符串。
@@ -52,7 +69,12 @@
 - 设置这条链（`installSection` 签名与 hooks、namespace 文法、卡片按 namespace 派发、
   `dsh.client` 的解析规则与 bundle 缺失时的失败方式、scope 的 `bind`/`mutate` 形状）
   **读实现**逐条核对；本机已挂载 `dsh-settings-file`、`$DSH_HOME/settings.yaml` 可写。
-- **还没实测**：卡片在真实 GUI 里出现、保存落盘与生效、「恢复默认」回到组合配置。
+- 目录选择的两条路由**读实现**核对：win32 的 DSH Desktop profile 禁用
+  `dsh-host-directory-picker-auto` 并改挂 `browse` 后端，`browse` 没有 `pick`，Remote 控制器
+  按 `requireCapability('native', 'pick')` 答 `directory-picker/unavailable`；
+  `window.__DSH_DESKTOP_PICK_DIRECTORY__` 只在 win32 页面上安装。
+- **还没实测**：卡片在真实 GUI 里出现、保存落盘与生效、「恢复默认」回到组合配置、
+  以及修好后的「浏览…」在 DSH Desktop 窗口里真的弹出选择框。
   清单与手工步骤见 [CONTRIBUTING §2.3 / §4.3](./CONTRIBUTING.md)。
 
 ## [0.1.0] - 2026-09-18

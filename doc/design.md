@@ -178,6 +178,18 @@ browser: ctx.settingsScope.bind({ namespace: ns })
 是「恢复默认」的事（`unset`，字段确实被覆盖时才出现），清完值重新继承组合配置。
 落点是 DSH 自己的用户设置文档，工作区文件一个不写。
 
+卡片的外观**逐类照抄**宿主的 `PluginCard` 与它的字段样式：`.5px` 的 `border-l4`、16px 圆角、
+`bg-layer-3` 上的折叠标题栏（展开后才渲染 body）、字段的 label + hint + input，以及页脚右侧的
+「放弃 / 保存」。原因是「插件配置」页只负责排版与按 namespace 派发，**不画卡片** —— 容器是
+各插件自己的。chevron 与胶囊按钮按 primitives 的几何手绘：本 bundle 只允许 `require('react')`。
+
+「浏览…」按**当前部署能用的路由**取目录：DSH Desktop 的 win32 profile 会把
+`dsh-host-directory-picker-auto` 禁用掉、改挂 `browse` 后端，而 `browse` 没有 `pick` 能力
+（Remote 会答 `directory-picker/unavailable`），所以那里走 DSH Desktop 装在页面上的
+`window.__DSH_DESKTOP_PICK_DIRECTORY__`；其余组合挂的是 `native` 后端，走
+`uiWorkspace.pickDirectory()`。路由在**每次点击时**解析（宿主按 slot entry 记忆化注入的
+props），两条路由都不存在时卡片给一条提示让人手填，不静默失败。
+
 提交后的变更还会调用 `control.invalidate()` 让**技能目录**失效。设置写入不碰文件系统，
 `fs/observed` 不会给它任何信号，不接线的话保存了新路径也要等到下一次无关的文件观察才生效 ——
 这条是评审发现的，`test/index.test.js` 里钉住。
@@ -220,13 +232,14 @@ browser: ctx.settingsScope.bind({ namespace: ns })
 
 ### 5.3 离线
 
-`npm run check`：9 个文件的 `node --check` + 96 项 `node:test`。
+`npm run check`：9 个文件的 `node --check` + 103 项 `node:test`。
 `test/index.test.js` 对着假 Cordis 上下文驱动真实插件对象，覆盖注入顺序、跨会话隔离、
 预算边界、`applyTo` 正反例、移除通知、`paths`，以及**设置服务 → 发现流程**这条端到端链路
 （含 schema 装载失败时回落到组合配置）；`test/settings.test.js` 用注入的 schema loader 钉住
 命名空间接线（含 loader 失败与 dispose 的降级路径）；`test/client.test.js` 按客户端模块系统的
-方式**跑真实 bundle**（假 `__ModuleLoader__` + React 替身），覆盖卡片注册、暂存/保存
-（含 revision 与回读确认）、只读态与样式安装/卸载。
+方式**跑真实 bundle**（假 `__ModuleLoader__` + React 替身），覆盖卡片注册、折叠/展开、
+暂存/保存（含 revision 与回读确认）、只读态、恢复默认、两条目录选择路由与选择失败时的提示、
+样式安装/卸载。
 
 ### 5.4 设置与卡片的依据（2026-09-21，Desktop 2.0.11 / dsh 0.1.5-rc.2）
 
@@ -247,6 +260,7 @@ schema 这条链跑通 9/9：解析组合配置与用户层、拒绝非法写入
 | 卡片按 namespace 派发 | `settings.plugin.item` 由「插件配置」标签页按 `entryKey = ns` 派发（`dsh-client-ui-settings-plugins/lib/client.js`） |
 | bundle 格式与发现 | `dsh.client`（`platform: 'web'`）+ `exports['./client']`；宿主扫描**已启用的 Loader 条目**，缺失 bundle 会大声失败（`dsh-client-modules`） |
 | 客户端 scope API | `bind({namespace})` → `getSnapshot/subscribe/set/unset/mutate(ops, expectedRevision)`（`dsh-client-ui-settings/lib/client.js`） |
+| 目录选择器的两条路由 | win32 的 DSH Desktop profile 禁用 `dsh-host-directory-picker-auto`、改挂 `browse` 后端（`resources/app/lib/profile-*.js`）；`browse` 没有 `pick`，Remote 控制器按 `requireCapability('native','pick')` 答 `directory-picker/unavailable`（`dsh-api-workspace-controller/lib/types/directory-picker.js`）；`window.__DSH_DESKTOP_PICK_DIRECTORY__` 只在 win32 页面安装（`resources/app/lib/client.js`） |
 | 手写 bundle 可行 | 第三方插件 `dsh-git-rollback` 的 `lib/client.js` 就是同一格式，且已在用 |
 
 ## 6. 已知边界与后续
