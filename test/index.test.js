@@ -15,17 +15,19 @@ import { fileURLToPath } from 'node:url'
 import plugin from '../index.js'
 
 const WORKSPACE = fileURLToPath(new URL('./fixtures/workspace', import.meta.url))
+const SHARED = fileURLToPath(new URL('./fixtures/shared', import.meta.url))
 
 const agentFor = (id, cwd = WORKSPACE) => ({ id, session: { header: { cwd } } })
 
 const textOf = (message) => message.content.map((part) => part.text ?? '').join('')
 
 /** A minimal stand-in for the host context this row is composed into. */
-function mount(cwd = WORKSPACE, config = {}) {
+function mount(cwd = WORKSPACE, config = {}, options = {}) {
   const listeners = new Map()
   const agent = agentFor('session-a', cwd)
   let invalidations = 0
   let provider = null
+  const settingsInstalls = []
 
   const ctx = {
     skills: {
@@ -40,7 +42,23 @@ function mount(cwd = WORKSPACE, config = {}) {
     },
   }
 
-  plugin.apply(ctx, config)
+  if (options.settings === true) {
+    // The real `settings` service is optional; this is the shape `attachSettings`
+    // wires, so the plugin can be driven from a settings section as it is in DSH.
+    ctx.effect = () => {}
+    ctx.inject = (services, callback) => {
+      assert.deepEqual(services, ['settings'])
+      callback({
+        settings: {
+          installSection(owner, ns, schema, entry, hooks) {
+            settingsInstalls.push({ owner, ns, schema, entry, hooks })
+          },
+        },
+      })
+    }
+  }
+
+  plugin.apply(ctx, config, options.loadSchema === undefined ? undefined : { loadSchema: options.loadSchema })
 
   const observe = (path, who = agent) => {
     for (const listener of listeners.get('fs/observed') ?? []) {
@@ -84,6 +102,14 @@ function mount(cwd = WORKSPACE, config = {}) {
       }
     },
     invalidations: () => invalidations,
+    settingsInstalls,
+    /** Publish a settings value the way the settings service does: source, then change. */
+    setSettings(value) {
+      assert.equal(settingsInstalls.length, 1, 'the settings namespace must be installed first')
+      const hooks = settingsInstalls[0].hooks
+      hooks.setSource(() => value)
+      hooks.onChange()
+    },
   }
 }
 
@@ -321,4 +347,95 @@ test('a render never exceeds the configured budget', async () => {
 
 test('a budget too small for even one block renders nothing', async () => {
   assert.equal(await mount(WORKSPACE, { maxBytes: 200 }).render(), '')
+})
+
+test('a configured path injects its instructions for a session with no .github of its own', async () => {
+  const bare = join(WORKSPACE, 'not-a-repo')
+  assert.equal(await mount(bare).render(), '')
+  const withShared = await mount(bare, { paths: [SHARED] }).render()
+  assert.match(withShared, /Instructions from: .*shared.*copilot-instructions\.md/)
+  assert.match(withShared, /keep the shared convention/)
+})
+
+test('a configured path contributes its skills to every session', async () => {
+  const names = (await mount(WORKSPACE, { paths: [SHARED] }).list({ cwd: WORKSPACE })).map(
+    (skill) => skill.name,
+  )
+  assert.deepEqual(names, ['child-skill', 'demo-skill', 'dir-named-skill', 'quiet-skill', 'shared-skill'])
+})
+
+test('an applyTo rule from a configured path waits for a file under that root', async () => {
+  const session = mount(WORKSPACE, { paths: [SHARED] })
+  await session.render()
+  session.observe(join(SHARED, 'src', 'a.shared.ts'))
+  assert.match(await session.render(), /Shared scoped rule\./)
+})
+
+test('a configured path that does not exist changes nothing', async () => {
+  const withoutPaths = await mount(WORKSPACE, { paths: [join(WORKSPACE, 'gone')] }).render()
+  assert.match(withoutPaths, /Instructions from: \.github\/copilot-instructions\.md/)
+  assert.doesNotMatch(withoutPaths, /keep the shared convention/)
+})
+
+/** The real loader needs a DSH install; the wiring is what these tests drive. */
+const fakeSchema = async () => 'SCHEMA'
+const flush = () => new Promise((resolve) => setImmediate(resolve))
+
+test('the settings section drives discovery, not just the composition config', async () => {
+  const session = mount(WORKSPACE, {}, { settings: true, loadSchema: fakeSchema })
+  await flush()
+  assert.equal(session.settingsInstalls.length, 1)
+  const installed = session.settingsInstalls[0]
+  assert.equal(installed.ns, 'import-vscode-ai-files')
+  assert.equal(installed.schema, 'SCHEMA')
+  assert.deepEqual(installed.entry, {}, 'the composition config is the base layer')
+
+  assert.doesNotMatch(await session.render(), /keep the shared convention/)
+
+  session.setSettings({ paths: [SHARED] })
+  assert.match(await session.render(), /keep the shared convention/)
+})
+
+test('the settings section also drives the skill catalog', async () => {
+  const session = mount(WORKSPACE, {}, { settings: true, loadSchema: fakeSchema })
+  await flush()
+  session.setSettings({ paths: [SHARED] })
+  const names = (await session.list({ cwd: WORKSPACE })).map((skill) => skill.name)
+  assert.ok(names.includes('shared-skill'))
+})
+
+test('a committed settings change invalidates the skill catalog', async () => {
+  // Nothing the settings service does touches the filesystem, so no
+  // `fs/observed` signal arrives to refresh the catalog: if this hook is not
+  // wired, a saved path can add skills the model never learns about.
+  const session = mount(WORKSPACE, {}, { settings: true, loadSchema: fakeSchema })
+  await flush()
+  const before = session.invalidations()
+  session.setSettings({ paths: [SHARED] })
+  assert.equal(session.invalidations(), before + 1)
+})
+
+test('a namespace that cannot be installed leaves the composition config in charge', async () => {
+  const reported = []
+  const original = console.error
+  console.error = (...args) => reported.push(args)
+  try {
+    const session = mount(
+      WORKSPACE,
+      {},
+      {
+        settings: true,
+        loadSchema: async () => {
+          throw new Error('schemastery is not installed')
+        },
+      },
+    )
+    await flush()
+    assert.equal(session.settingsInstalls.length, 0)
+    assert.match(await session.render(), /Workspace rules/)
+  } finally {
+    console.error = original
+  }
+  assert.equal(reported.length, 1)
+  assert.match(String(reported[0][0]), /settings namespace not registered/)
 })

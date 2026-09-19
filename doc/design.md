@@ -14,12 +14,15 @@ VSCode / Copilot 已经有一套仓库级 AI 配置约定：`.github/copilot-ins
 
 ## 2. 总体架构
 
-插件是**一个 host 平面的组合行**（`cordis.patch.yml` 里插一行），不做别的：
+插件是**一个 host 平面的组合行**（`cordis.patch.yml` 里插一行），加上一个只为设置卡片存在的
+browser half：
 
-- 它**不发布任何 service**，所以不需要 `isolate` realm，可以松散地放在 host 组合里；
+- 它**不发布任何 service**，所以不需要 `isolate` realm，可以松散地放在 host 组合里
+  （它注册的是一个 settings namespace，那不是 Cordis service）；
 - host 平面注册进的是注册表的**全局层**，对每个 preset、每个会话生效 ——
   这正是「仓库级配置到处生效」需要的语义；
-- 它**没有 Client half**，GUI 里的注入行和技能目录都是既有客户端的既有渲染。
+- GUI 里的注入行和技能目录都是既有客户端的既有渲染；唯一的 Client half 是「插件配置」页里
+  那张改 `paths` 的卡片（§3.8）。
 
 ### 2.1 为什么不是 agent preset 平面
 
@@ -43,14 +46,22 @@ preset 平面看起来更"就近"（一次会话一实例），但**走不通**�
 的直接子目录各当作一个**项目根**，每个根取自己的 `.github/`。
 `.github/instructions/` 内部递归到深度 4。
 
+`paths` 里的每个路径**按完全相同的 walk 再扫一遍**（它自己 + 同样层数），所以「工作区外的共享
+规则」不需要第二套代码路径。路径相对 cwd 解析；不存在的路径贡献为空——发现是「读盘上有什么」，
+不是报错。**已经访问过的目录不会被走第二遍**：第二遍会拿到一整层全新的下探预算，从而多扫出
+一层本来不该有的目录（点名 cwd 的直接子目录就会把它的子目录也拉进来）。反过来，比 cwd 预算
+更深、但被 `paths` 点名的路径仍会被扫——点名就是请求。
+
 这样 `D:\NEVSTOP-LAB` 这类「多 repo 工作文件夹」就成立，且各 repo 互不干扰。
 **刻意不向上找祖先链** —— 这与 DSH 原生 `dsh-agent-instructions` 的语义不同
 （它按 project root → cwd 的祖先链找 `<dir>/<candidate>`）。两者混用会产生难以解释的
 重复与遗漏，所以本插件自己管全部三类文件，行为一致、可解释。
 
-`applyTo` 的匹配相对**该文件所属的项目根**，不是工作区根 —— 否则 `src/*.ts` 这种模式在
-子 repo 里永远匹配不上。`lib/glob.js` 实现了 `**`、`*`、`?`、`{a,b}`、`[abc]`，并且
-**按括号深度切分逗号**（朴素的 `split(',')` 会把最常见的 `**/*.{ts,tsx}` 切成两半）。
+cwd 之下的文件用相对路径做标题；`paths` 扫到的文件不在 cwd 下，`..\..` 链说不清位置，
+于是用**绝对路径**（正斜杠化）做标题。`applyTo` 仍旧相对**该文件所属的项目根**匹配 ——
+否则 `src/*.ts` 这种模式在子 repo 或共享目录里永远匹配不上。`lib/glob.js` 实现了
+`**`、`*`、`?`、`{a,b}`、`[abc]`，并且**按括号深度切分逗号**（朴素的 `split(',')` 会把
+最常见的 `**/*.{ts,tsx}` 切成两半）。
 
 没有 `applyTo` 的文件常驻；有的只在会话**真的观察过**匹配文件之后才注入。
 「观察过」来自 `fs/observed`。
@@ -126,18 +137,65 @@ host 平面只有**一个实例服务所有会话**，所以每个会话的 `cwd
 原因不是洁癖：profile 本地插件向上找不到 harness 自己的 `node_modules`，
 任何 `@deepseek-ai/*` 或第三方 import 都会在加载期失败。
 
+唯一的例外是 §3.8 的设置 schema，它对 `@deepseek-ai/schemastery` 有硬需求（见该节），
+但走的是**惰性动态 import**，因此加载期依赖仍然是零：clone 下来没有 `node_modules`
+也照样 `npm run check`；解析不到 schemastery 的部署丢的是那张卡片，不是整个插件。
+
 IO 全部同步（`discover()` 是同步函数）：零缓存、零失效逻辑，每个 pre-step 直接重读磁盘。
 代价是每步的文件系统开销（几十次 stat/readdir，亚毫秒级），换来的是"改文件下一步生效"
 这个用户可见的性质。
+
+### 3.8 运行时设置与「插件页」卡片
+
+`paths` 需要能在 GUI 里改，而 DSH 的做法是 **settings namespace + 浏览器卡片**：
+
+```
+host: ctx.inject(['settings'], c => c.settings.installSection(ctx, ns, schema, config, hooks))
+                         ↑ 组合配置当 base          ↑ 服务消失时回退到 config
+browser: ctx.settingsScope.bind({ namespace: ns })
+         ctx.slots.register({ name: 'settings.plugin.item', key: ns, locale: ns, … }, Card)
+```
+
+四周内部契约，都在 §5.3 有对应实测/签名依据：
+
+1. **`ctx.inject(['settings'], …)` 而不是静态 `inject`。** `settings` 是可选服务：
+   在它上线前调用回调不会发生；`installSection` 在服务消失时把 source 换回组合配置。
+   于是「没有设置服务」这条路径不需要任何分支代码。
+2. **`setSource` 给的是一个 getter，不是值。** 插件把它存成 `readSettings`，每次用之前调用
+   （`settings()`），所以一步之内的两次读取不会拿到两个版本，也不存在需要失效的缓存。
+3. **schema 必须是真正的 schemastery schema。** 服务本身不校验 schema 的形状，但浏览器要靠
+   `schema.toJSON()`（`{ uid, refs }` 信封）把它重建出来才能渲染表单；手写的形状像 schema 的
+   对象能通过 host，却会让卡片拿不到可编辑的值。所以这里不用 `lib/frontmatter.js` 那种
+   「自己写一个」的做法。
+4. **卡片的 slot key 就是 namespace**（`settings.plugin.item` 按 namespace 派发）。两半各自
+   硬编码同一个字符串：host 侧的 `SETTINGS_NAMESPACE` 与 browser 侧的 `NAMESPACE`
+   —— 这是本插件唯一一处「两半必须一致」的耦合，`test/settings.test.js` 与
+   `test/client.test.js` 各钉住一半。
+
+卡片只改 `paths`，其余字段仍只在组合配置里。写入走客户端 settings scope：
+保存时带**草稿开始那一刻的 revision**，被并发改动抢先就拒绝而不是覆盖；保存成功后**回读**
+宿主给的值确认，而不是假定写入成功。「放弃」只丢弃未保存的草稿；要清掉**已存储**的用户覆盖
+是「恢复默认」的事（`unset`，字段确实被覆盖时才出现），清完值重新继承组合配置。
+落点是 DSH 自己的用户设置文档，工作区文件一个不写。
+
+提交后的变更还会调用 `control.invalidate()` 让**技能目录**失效。设置写入不碰文件系统，
+`fs/observed` 不会给它任何信号，不接线的话保存了新路径也要等到下一次无关的文件观察才生效 ——
+这条是评审发现的，`test/index.test.js` 里钉住。
+
+仓库内的 bundle 是**手写的 lazy-CJS**（`window.__ModuleLoader__.load({ id, factory })`），
+不引入任何构建步骤——与 dsh-git-rollback 这类第三方插件的做法一致。
 
 ## 4. 源码结构
 
 | 文件 | 职责 |
 | --- | --- |
-| `index.js` | 插件入口：`agent/pre-step` 注入、skill provider、`fs/observed` |
-| `lib/discover.js` | 扫描项目根，产出 instructions 与 skills |
+| `index.js` | 插件入口：`agent/pre-step` 注入、skill provider、`fs/observed`、设置命名空间的接线 |
+| `lib/discover.js` | 扫描项目根（cwd 与 `paths`），产出 instructions 与 skills |
 | `lib/frontmatter.js` | 极简 YAML frontmatter（标量、引号、`\|` `>` 块、行内与列表数组、注释） |
 | `lib/glob.js` | `applyTo` 的 glob → RegExp，含括号感知的逗号切分 |
+| `lib/settings.js` | 设置命名空间的 schema（`z` 由调用方传入，所以本文件可离线测试） |
+| `lib/client.js` | browser half：设置卡片（手写 lazy-CJS bundle，无构建步骤） |
+| `scripts/verify-settings-schema.mjs` | 拿真实 schemastery 复核设置链（找得到才跑，找不到跳过并退 0） |
 
 ## 5. 验证记录
 
@@ -162,15 +220,46 @@ IO 全部同步（`discover()` 是同步函数）：零缓存、零失效逻辑�
 
 ### 5.3 离线
 
-`npm run check`：6 个文件的 `node --check` + 58 项 `node:test`。
+`npm run check`：9 个文件的 `node --check` + 96 项 `node:test`。
 `test/index.test.js` 对着假 Cordis 上下文驱动真实插件对象，覆盖注入顺序、跨会话隔离、
-预算边界、`applyTo` 正反例与移除通知。
+预算边界、`applyTo` 正反例、移除通知、`paths`，以及**设置服务 → 发现流程**这条端到端链路
+（含 schema 装载失败时回落到组合配置）；`test/settings.test.js` 用注入的 schema loader 钉住
+命名空间接线（含 loader 失败与 dispose 的降级路径）；`test/client.test.js` 按客户端模块系统的
+方式**跑真实 bundle**（假 `__ModuleLoader__` + React 替身），覆盖卡片注册、暂存/保存
+（含 revision 与回读确认）、只读态与样式安装/卸载。
+
+### 5.4 设置与卡片的依据（2026-09-21，Desktop 2.0.11 / dsh 0.1.5-rc.2）
+
+本节的结论来自**读实现**（`resources/app/node_modules/@deepseek-ai/*` 的 `lib/*.js` 与
+README）加上一段**可重跑的脚本**，不是运行中的 GUI 实测 —— 卡片要在 DSH 重启并重装插件后
+才会出现，本轮没有做那一步。未实测的部分在 CONTRIBUTING §4.3 列出。
+
+`npm run verify:settings`（`scripts/verify-settings-schema.mjs`）拿真实的 schemastery 把
+schema 这条链跑通 9/9：解析组合配置与用户层、拒绝非法写入、`toJSON()` 信封、**从信封重建并
+校验**（浏览器渲染卡片走的就是这一步），以及两半的 namespace 是同一个字符串。
+
+| 契约 | 依据 |
+| --- | --- |
+| 设置服务在 Desktop 里存在且可写 | 组合层挂载 `@deepseek-ai/dsh-settings-file`（`dsh-base/cordis.patch.yml`），默认落点 `$DSH_HOME/settings.yaml` 已存在且有 6 个 namespace 小节；provider `writable` 为 true |
+| `installSection(owner, ns, schema, entry, hooks)` | `dsh-settings/lib/index.js`；`setSource` 先给 `() => scope.get()`，服务消失时给 `() => entry` |
+| namespace 文法 | `/^[a-z][a-z0-9-]*$/`，`import-vscode-ai-files` 合法（`verify:settings` 复核） |
+| schema 必须是真 schemastery | 浏览器用 `new Schema(serialized)` 重建 `{ uid, refs }` 信封（`dsh-client-ui-settings/lib/client.js`）；重建失败则该 namespace 没有可编辑值。`verify:settings` 用真实 schemastery 走通重建 |
+| 卡片按 namespace 派发 | `settings.plugin.item` 由「插件配置」标签页按 `entryKey = ns` 派发（`dsh-client-ui-settings-plugins/lib/client.js`） |
+| bundle 格式与发现 | `dsh.client`（`platform: 'web'`）+ `exports['./client']`；宿主扫描**已启用的 Loader 条目**，缺失 bundle 会大声失败（`dsh-client-modules`） |
+| 客户端 scope API | `bind({namespace})` → `getSnapshot/subscribe/set/unset/mutate(ops, expectedRevision)`（`dsh-client-ui-settings/lib/client.js`） |
+| 手写 bundle 可行 | 第三方插件 `dsh-git-rollback` 的 `lib/client.js` 就是同一格式，且已在用 |
 
 ## 6. 已知边界与后续
 
 - **不监视文件**：没有 watcher。`.github` 的增删改在"下一个模型步骤"生效（因为每步重读），
-  但**技能目录**还需要一次失效信号；当前由 `fs/observed` 提供。
-- **只读**：插件不写任何文件。
+  但**技能目录**还需要一次失效信号；当前由 `fs/observed` 提供。设置卡片改的 `paths` 同理：
+  保存后从下一个步骤起生效，不需要任何失效逻辑。
+- **只写一处**：插件不写工作区任何文件。唯一的写路径是设置卡片提交的 `paths`，它由宿主
+  设置服务落进 DSH 自己的用户设置文档。
+- **卡片只覆盖 `paths`**：`maxBytes`、`scanSubdirectories`、`instructionDirs`、`skillDirs`
+  仍然只能在组合配置里改（改完要重启，因为 profile patch 层不热重载）。
+- **不做路径展开**：`paths` 是普通目录路径，不解析 `~`、不通配符、不展开环境变量；
+  相对路径相对会话 cwd 解析，所以「相对路径」在不同会话里指向不同位置，写绝对路径更稳。
 - **不覆盖** `.github/prompts/*.prompt.md`、`.github/agents|chatmodes/*.md`、
   `.vscode/settings.json` 里的指令路径，也不兼容 `.claude/skills` 等其他技能根。
 - **子 agent 也会注入**：host 平面注册是全局的，所以子 agent 的组装同样带这些指令。

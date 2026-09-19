@@ -17,6 +17,7 @@
   "main": "index.js",
   "exports": {
     ".": "./index.js",
+    "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -33,11 +34,16 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
     }
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "check": "node --check index.js && node --check lib/discover.js && node --check lib/frontmatter.js && node --check lib/glob.js && node --check scripts/pack.mjs && node --check scripts/release-notes.mjs && npm test",
+    "check": "node --check index.js && node --check lib/discover.js && node --check lib/frontmatter.js && node --check lib/glob.js && node --check lib/settings.js && node --check lib/client.js && node --check scripts/pack.mjs && node --check scripts/release-notes.mjs && node --check scripts/verify-settings-schema.mjs && npm test",
+    "verify:settings": "node scripts/verify-settings-schema.mjs",
     "pack": "node scripts/pack.mjs"
   }
 }

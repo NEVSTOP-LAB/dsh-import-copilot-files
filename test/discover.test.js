@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict'
-import { basename } from 'node:path'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { discover } from '../lib/discover.js'
 
 const WORKSPACE = fileURLToPath(new URL('./fixtures/workspace', import.meta.url))
+const SHARED = fileURLToPath(new URL('./fixtures/shared', import.meta.url))
 
 const discovered = () => discover({ cwd: WORKSPACE, scanSubdirectories: 1 })
+
+/** Forward-slashed, the way a display path is labelled. */
+const slash = (value) => value.split('\\').join('/')
 
 test('roots are the working directory plus one level of subdirectories', () => {
   const { roots } = discovered()
@@ -106,4 +112,108 @@ test('a non-boolean invocation flag drops the skill', () => {
   const { skills, warnings } = discovered()
   assert.equal(skills.some((skill) => skill.name === 'bad-bool'), false)
   assert.ok(warnings.some((warning) => warning.includes('"disable-model-invocation" is not a boolean')))
+})
+
+test('a configured path is scanned by the same rule as the working directory', () => {
+  const { roots, instructions, skills } = discover({
+    cwd: WORKSPACE,
+    scanSubdirectories: 1,
+    paths: [SHARED],
+  })
+  assert.deepEqual(roots, [WORKSPACE, join(WORKSPACE, 'child-repo'), join(WORKSPACE, 'not-a-repo'), SHARED, join(SHARED, 'child-repo')])
+  assert.ok(instructions.some((entry) => entry.content.includes('keep the shared convention')))
+  assert.ok(instructions.some((entry) => entry.content.includes('repository nested one level')))
+  assert.ok(skills.some((skill) => skill.name === 'shared-skill'))
+})
+
+test('a configured path carries its own roots for applyTo matching', () => {
+  const { instructions } = discover({ cwd: WORKSPACE, scanSubdirectories: 1, paths: [SHARED] })
+  const scoped = instructions.find((entry) => entry.displayPath.endsWith('shared.instructions.md'))
+  assert.deepEqual(scoped.applyTo, ['**/*.shared.ts'])
+  assert.equal(scoped.rootDir, SHARED)
+})
+
+test('a file outside the working directory is labelled with its absolute path', () => {
+  const { instructions } = discover({ cwd: WORKSPACE, scanSubdirectories: 1, paths: [SHARED] })
+  const copilot = instructions.find((entry) => entry.content.includes('Shared rules'))
+  assert.equal(copilot.displayPath, `${slash(SHARED)}/.github/copilot-instructions.md`)
+})
+
+test('a configured path may be relative to the working directory', () => {
+  const { roots } = discover({ cwd: WORKSPACE, scanSubdirectories: 0, paths: ['../shared'] })
+  assert.deepEqual(roots, [WORKSPACE, SHARED])
+})
+
+test('scanSubdirectories 0 applies to a configured path too', () => {
+  const { roots, instructions } = discover({ cwd: WORKSPACE, scanSubdirectories: 0, paths: [SHARED] })
+  assert.deepEqual(roots, [WORKSPACE, SHARED])
+  assert.equal(instructions.some((entry) => entry.content.includes('Shared child rules')), false)
+})
+
+test('a configured path that does not exist contributes nothing', () => {
+  const missing = join(WORKSPACE, 'no-such-folder')
+  const { instructions, skills, warnings } = discover({
+    cwd: WORKSPACE,
+    scanSubdirectories: 1,
+    paths: [missing],
+  })
+  assert.deepEqual(instructions, discovered().instructions)
+  assert.deepEqual(skills, discovered().skills)
+  assert.deepEqual(warnings, discovered().warnings)
+})
+
+test('a configured path already under the working directory is not scanned twice', () => {
+  const { roots, instructions } = discover({
+    cwd: WORKSPACE,
+    scanSubdirectories: 1,
+    paths: [join(WORKSPACE, 'child-repo')],
+  })
+  assert.deepEqual(roots, discovered().roots)
+  assert.deepEqual(instructions, discovered().instructions)
+})
+
+test('re-listing a scanned root does not hand it a fresh depth budget', () => {
+  // The reported bug: `child-repo` was already reached at depth 1, but naming it
+  // in `paths` walked it again with a full budget of its own and picked up its
+  // grandchild — one level deeper than the cwd rule reaches.
+  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  try {
+    const child = join(root, 'child')
+    const grandchild = join(child, 'grandchild')
+    mkdirSync(join(grandchild, '.github'), { recursive: true })
+    writeFileSync(join(grandchild, '.github', 'copilot-instructions.md'), 'GRANDCHILD-RULE')
+
+    const { roots, instructions } = discover({ cwd: root, scanSubdirectories: 1, paths: [child] })
+    assert.deepEqual(roots, [root, child])
+    assert.equal(instructions.some((entry) => entry.content.includes('GRANDCHILD-RULE')), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a configured path deeper than the cwd budget is still scanned', () => {
+  // The other half of the rule: naming it is the request, so the visit budget is
+  // what limits the cwd walk, not the configured root.
+  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  try {
+    const deep = join(root, 'a', 'b')
+    mkdirSync(join(deep, '.github'), { recursive: true })
+    writeFileSync(join(deep, '.github', 'copilot-instructions.md'), 'DEEP-RULE')
+
+    const { roots, instructions } = discover({ cwd: root, scanSubdirectories: 0, paths: [deep] })
+    assert.deepEqual(roots, [root, deep])
+    assert.ok(instructions.some((entry) => entry.content.includes('DEEP-RULE')))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('paths that are not usable strings are ignored', () => {
+  const { roots } = discover({ cwd: WORKSPACE, scanSubdirectories: 0, paths: ['', '   ', 42, null] })
+  assert.deepEqual(roots, [WORKSPACE])
+})
+
+test('paths is optional and may be omitted entirely', () => {
+  const { roots } = discover({ cwd: WORKSPACE, scanSubdirectories: 0 })
+  assert.deepEqual(roots, [WORKSPACE])
 })
