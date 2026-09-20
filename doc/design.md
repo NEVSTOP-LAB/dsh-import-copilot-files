@@ -64,10 +64,15 @@ preset 平面看起来更"就近"（一次会话一实例），但**走不通**�
 在两侧漂移。两个单位可能解析到**同一个源文件**（`paths` 点名一个已在走查里的目录，而
 `instructionDirs` 不以 `.github` 开头时两侧的基目录相同）——发现结果按绝对路径去重，只保留
 第一个单位，因此那条记录的 `rootDir` 也取自第一个单位：自定义 `instructionDirs` 时，子项目根
-里那份文件的 `applyTo` 锚点会落在父根上。路径相对 cwd 解析；不存在的路径贡献为空 —— 发现是「读盘上有什么」，不是报错。
+里那份文件的 `applyTo` 锚点会落在父根上。路径由 `resolveConfiguredPath` 定位：相对 cwd，或以
+`~` 开头时相对用户主目录（条目里只有**开头**的 `~` 有这层含义，`~name` 与 `a/~/b` 是普通相对
+路径；环境变量与通配符不展开）。这个函数是导出的，`index.js` 的目录失效判定复用它，两处不会
+各写一份解析。不存在的路径贡献为空 —— 发现是「读盘上有什么」，不是报错。
 **已经扫过的配置目录不会被走第二遍**（cwd 走查已经读过每个项目根的 `.github`，再点名它等于
 没点；重复点名同一个条目同理）。比 cwd 预算更深、但被 `paths` 点名的目录仍会被扫 ——
-点名就是请求。
+点名就是请求。`paths` 的默认值是 `['~/.copilot']`（`index.js` 的 `DEFAULT_PATHS`，组合层与
+设置 schema 同源）：每个会话默认带上当前用户的 Copilot 家目录，也就是 `copilot-instructions.md`
+加 `skills/`；它只是一个普通条目，插件页里删掉并保存成 `paths: []` 即可关闭。
 
 这样 `D:\NEVSTOP-LAB` 这类「多 repo 工作文件夹」就成立，且各 repo 互不干扰。
 **刻意不向上找祖先链** —— 这与 DSH 原生 `dsh-agent-instructions` 的语义不同
@@ -160,7 +165,12 @@ host 平面只有**一个实例服务所有会话**，所以每个会话的 `cwd
 原因不是洁癖：profile 本地插件向上找不到 harness 自己的 `node_modules`，
 任何 `@deepseek-ai/*` 或第三方 import 都会在加载期失败。
 
-唯一的例外是 §3.8 的设置 schema，它对 `@deepseek-ai/schemastery` 有硬需求（见该节），
+`dependencies` 仍然为空，`peerDependencies` 里只列宿主契约（`@deepseek-ai/cordis`、
+`@deepseek-ai/dsh-settings`、`@deepseek-ai/schemastery`、`react`）并且**四个全部 optional**：
+这个插件在 profile 里本来就能缺其中任何一个（见 §3.8 的两处可选），而 optional 的 peer 不会进
+pnpm 的 peer 问题清单，所以这份声明既如实又不会给别人的安装添警告。加载期依赖因此仍是零。
+
+唯一的 import 例外是 §3.8 的设置 schema，它对 `@deepseek-ai/schemastery` 有硬需求（见该节），
 但走的是**惰性动态 import**，因此加载期依赖仍然是零：clone 下来没有 `node_modules`
 也照样 `npm run check`；解析不到 schemastery 的部署丢的是那张卡片，不是整个插件。
 
@@ -225,7 +235,7 @@ props），两条路由都不存在时卡片给一条提示让人手填，不静
 | 文件 | 职责 |
 | --- | --- |
 | `index.js` | 插件入口：`agent/pre-step` 注入、skill provider、`fs/observed`、设置命名空间的接线 |
-| `lib/discover.js` | 扫描配置目录（cwd 各项目根的 `.github`，以及本身就是配置目录的 `paths` 条目），产出 instructions 与 skills |
+| `lib/discover.js` | 扫描配置目录（cwd 各项目根的 `.github`，以及本身就是配置目录的 `paths` 条目），产出 instructions 与 skills；并导出配置路径的解析（cwd 相对、`~` 主目录）与绝对路径判定 |
 | `lib/frontmatter.js` | 极简 YAML frontmatter（标量、引号、`\|` `>` 块、行内与列表数组、注释） |
 | `lib/glob.js` | `applyTo` 的 glob → RegExp，含括号感知的逗号切分 |
 | `lib/settings.js` | 设置命名空间的 schema（`z` 由调用方传入，所以本文件可离线测试） |
@@ -255,14 +265,17 @@ props），两条路由都不存在时卡片给一条提示让人手填，不静
 
 ### 5.3 离线
 
-`npm run check`：9 个文件的 `node --check` + 114 项 `node:test`。
+`npm run check`：9 个文件的 `node --check` + 124 项 `node:test`。
 `test/index.test.js` 对着假 Cordis 上下文驱动真实插件对象，覆盖注入顺序、跨会话隔离、
-预算边界、`applyTo` 正反例、移除通知、`paths`，以及**设置服务 → 发现流程**这条端到端链路
+预算边界、`applyTo` 正反例、移除通知、`paths`、默认的 `~/.copilot` 条目（含关掉它），
+以及**设置服务 → 发现流程**这条端到端链路
 （含 schema 装载失败时回落到组合配置）；`test/discover.test.js` 另外钉住配置目录语义的负例
 （条目内部的 `.github` 树一律不读、它的子目录不是配置目录、AGENTS.md 从不被读、两个单位落到
-同一个源文件时只出现一次、退化目录取值与 Windows 写法都不越界）；
+同一个源文件时只出现一次、退化目录取值与 Windows 写法都不越界），以及 `~` 的落点与
+「只有开头的 `~` 才算主目录」；用例通过 `apply` 的 `options.homeDir` / `discover` 的 `homeDir`
+把 home 指到一个临时目录（`mount` 默认指到不存在的目录），所以断言不依赖跑测试的机器；
 `test/settings.test.js` 用注入的 schema loader 钉住
-命名空间接线（含 loader 失败与 dispose 的降级路径）；`test/client.test.js` 按客户端模块系统的
+命名空间接线（含 loader 失败与 dispose 的降级路径）与默认值；`test/client.test.js` 按客户端模块系统的
 方式**跑真实 bundle**（假 `__ModuleLoader__` + React 替身），覆盖卡片注册与标题、折叠/展开、
 暂存/保存（含 revision 与回读确认）、只读态、恢复默认、两条目录选择路由与选择失败时的提示、
 样式安装/卸载。
@@ -298,8 +311,10 @@ schema 这条链跑通 9/9：解析组合配置与用户层、拒绝非法写入
   设置服务落进 DSH 自己的用户设置文档。
 - **卡片只覆盖 `paths`**：`maxBytes`、`scanSubdirectories`、`instructionDirs`、`skillDirs`
   仍然只能在组合配置里改（改完要重启，因为 profile patch 层不热重载）。
-- **不做路径展开**：`paths` 的条目是普通目录路径，不解析 `~`、不通配符、不展开环境变量；
-  相对路径相对会话 cwd 解析，所以「相对路径」在不同会话里指向不同位置，写绝对路径更稳。
+- **只展开开头的 `~`**：`paths` 条目里只有开头那个 `~`（单独一个，或后跟 `/`、Windows 上 `\`）
+  表示用户主目录，`~name` 与 `a/~/b` 都是普通相对路径；通配符与环境变量不展开。相对路径相对
+  会话 cwd 解析，所以「相对路径」在不同会话里指向不同位置，写绝对路径或 `~` 更稳。默认条目
+  `~/.copilot` 正是靠这一条在任何机器上指向同一个位置。
 - **`paths` 是配置目录，不是项目根**：一个条目恰好是一个配置目录（等价于项目根的 `.github`），
   `scanSubdirectories` 不作用于它，它内部的 `.github` 树不被**条目自身的走查**读取（若它同时
   也在 cwd 走查范围内，那棵树仍可能以项目根 `.github` 的身份被读到），它下面的子目录也不会被

@@ -32,8 +32,12 @@
         # `.github`-equivalent directory: it holds `copilot-instructions.md`,
         # `instructions/` and `skills/` directly, so there is no `.github` under
         # it and `scanSubdirectories` does not apply to it. Absolute paths, or
-        # paths relative to the session cwd. For example:
+        # paths relative to the session cwd; a leading `~` is the user's home
+        # directory, which is what makes the default entry the per-user Copilot
+        # home (`[user]\.copilot`) on every machine. For example:
         #   paths:
+        #     - ~/.copilot
         #     - D:\NEVSTOP-LAB\shared-ai-config
         #     - \\server\team\.ai
-        paths: []
+        paths:
+          - '~/.copilot'
