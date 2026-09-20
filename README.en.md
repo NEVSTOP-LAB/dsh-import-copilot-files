@@ -93,21 +93,6 @@ dsh plugin --profile desktop remove dsh-import-copilot-files            # uninst
 > editing `.github/**` in a repository or a file under a `paths` entry takes effect **immediately**
 > (it is re-read on every model step); only editing the plugin's own source needs another restart.
 
-### Upgrading from the old name
-
-This plugin used to be called `dsh-import-vscode-ai-files`. A profile records the **package name**,
-so remove the old package before adding the new one — both rows at once would inject the same
-configuration **twice**:
-
-```sh
-dsh plugin --profile desktop remove dsh-import-vscode-ai-files
-dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files
-```
-
-The settings namespace was renamed too, so **rename** the leftover `import-vscode-ai-files:` section
-of `$DSH_HOME/settings.yaml` to `import-copilot-files:` (or re-enter the paths in the card; the card
-starts from the composition default, so deleting the old section outright loses your paths).
-
 ### The peer-dependency warning during installation
 
 `dsh plugin add` passes pnpm's output through verbatim, so **any** plugin in the profile that

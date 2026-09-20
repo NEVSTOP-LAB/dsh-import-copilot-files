@@ -26,7 +26,7 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 （`.github/instructions/` 内部递归到深度 4）；不向上找祖先链。`D:\NEVSTOP-LAB` 这类「多 repo 工作
 文件夹」因此成立：文件夹自身和它直接下面的每个 repo 各贡献自己的 `.github`，互不干扰。
 
-`paths` 里的每个路径**本身就是配置目录**（等价于项目根的 `.github`，它下面不再有 `.github`），
+`paths` 里的每个路径**本身就是配置目录**（等价于项目根的 `.github`，其下没有 `.github`），
 所以 `scanSubdirectories` 不作用于它。路径可绝对、可相对会话 cwd，**或以 `~` 开头表示用户主目录**
 （只有开头那个 `~` 有此含义，`~name` 与 `a/~/b` 是普通相对路径；环境变量与通配符不展开）；
 不存在的路径贡献为空。默认 `['~/.copilot']`，在插件页里删掉那行并保存成 `paths: []` 即可关闭。
@@ -79,20 +79,6 @@ dsh plugin --profile desktop remove dsh-import-copilot-files            # 卸载
 > [!IMPORTANT]
 > profile patch 层**不热重载**，安装后要**重启 DSH**。之后改仓库里的 `.github/**` 或某个 `paths`
 > 条目下的文件都**即时生效**（每个模型步骤重新读盘），只有改插件自身源码才需要再重启。
-
-### 从旧名升级
-
-本插件曾用名 `dsh-import-vscode-ai-files`。profile 里记的是**包名**，所以先移除旧包再装新名 ——
-两条行同时存在会让同一份配置**注入两次**：
-
-```sh
-dsh plugin --profile desktop remove dsh-import-vscode-ai-files
-dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files
-```
-
-设置命名空间同属这次改名，所以还要把 `$DSH_HOME/settings.yaml` 里遗留的
-`import-vscode-ai-files:` 小节**改名**成 `import-copilot-files:`（或在卡片里重新填一遍；
-卡片一开始显示的是组合默认值，直接删掉旧小节会丢掉你原来的路径）。
 
 ### 安装时那条 peer 依赖警告
 
