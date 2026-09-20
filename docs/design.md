@@ -52,9 +52,10 @@ preset 平面看起来更"就近"（一次会话一实例），但**走不通**�
   `.github` 段，其余部分原样拼接（cwd 侧不剥离、仍旧拼到项目根上，所以 `custom/rules` 这类
   自定义目录在两侧都按原样拼接）；剩下的部分里若**仍含** `.github` 段（`x/.github/y`）该条目
   被拒绝，而走查本身在配置目录上跳过隐藏目录 —— 于是 `.github`、`.`、`./.github`、`''`、`/`
-  这些退化写法都落在配置目录上、却依然读不到它内部的 `.github` 树。这里跳过的是隐藏目录与
-  `node_modules`（与 `listDirectories` 一致）；cwd 侧的项目根走查**没有**这层过滤，两边刻意
-  不对称：配置目录里的点目录是内容，而项目根里的 `.github` 正是配置本身。另外注意这条说的是
+  这些退化写法都落在配置目录上、却依然读不到它内部的 `.github` 树。这层过滤只作用于
+  **指令文件的走查**（`walkInstructionFiles` 的 `skipHidden`，配置目录才开），cwd 侧的项目根
+  走查**没有**它 —— 两边刻意不对称：配置目录里的点目录是内容，而项目根里的 `.github` 正是
+  配置本身。另外注意这条说的是
   **条目自身的走查** —— 若该目录同时落在 cwd 走查范围内，那棵树仍可能以项目根 `.github` 的
   身份被读到，那是另一侧的规则。`scanSubdirectories` 不作用于它 —— 它的子目录是内容而不是更多
   的配置目录。
@@ -100,12 +101,16 @@ cwd 侧是项目根，`paths` 侧是该条目自身 —— 否则 `src/*.ts` 这
 source: { kind: 'plugin', plugin: 'import-copilot-files', form: 'instructions' }
 ```
 
-客户端按 `source.form` 决定一条注入行的形态与标题
-（`KNOWN_FORMS = ['instructions','catalog','snapshot','notice','relay','recall']`）。
+客户端把这条消息渲染成一条**上下文注入**行：行标题固定为「上下文注入」（`provenance.role`
+为 `recall` 时是「上下文召回」），行内的来源标签取自 `source.plugin`，正文与折叠摘要由
+`source.form` 决定（`KNOWN_FORMS = ['instructions','catalog','snapshot','notice','relay','recall']`，
+`form: 'instructions'` 走 `InstructionsBody`）。
 
 > **为什么不用 `ctx.systemPrompt.context`**：它的正文会被收进 `dsh-system-prompt` 那条
-> 「状态快照 · @deepseek-ai/dsh-system-prompt」里，标题不带仓库路径，看上去就像"根本没注入"。
-> `agent/pre-step` + `form: 'instructions'` 才能拿到与 AGENTS.md 同级的独立「指令注入」行。
+> 上下文注入行（`form: 'snapshot'`，来源标签是 `@deepseek-ai/dsh-system-prompt`），看不出是
+> 哪个仓库的配置，看上去就像"根本没注入"。
+> `agent/pre-step` + `form: 'instructions'` + 自己的 `source.plugin` 才能拿到与 AGENTS.md
+> 同级、可辨认来源的独立行。
 
 代价是两处**内部契约**（升级时优先查，见 [compatibility.md](./compatibility.md)）：
 
@@ -189,7 +194,7 @@ browser: ctx.settingsScope.bind({ namespace: ns })
          ctx.slots.register({ name: 'settings.plugin.item', key: ns, locale: ns, … }, Card)
 ```
 
-四周内部契约：
+四周内部契约（签名与实测依据见 [compatibility.md §3.4](./compatibility.md)）：
 
 1. **`ctx.inject(['settings'], …)` 而不是静态 `inject`。** `settings` 是可选服务：
    在它上线前调用回调不会发生；`installSection` 在服务消失时把 source 换回组合配置。
@@ -221,7 +226,8 @@ browser: ctx.settingsScope.bind({ namespace: ns })
 （Remote 会答 `directory-picker/unavailable`），所以那里走 DSH Desktop 装在页面上的
 `window.__DSH_DESKTOP_PICK_DIRECTORY__`；其余组合挂的是 `native` 后端，走
 `uiWorkspace.pickDirectory()`。路由在**每次点击时**解析（宿主按 slot entry 记忆化注入的
-props），两条路由都不存在时卡片给一条提示让人手填，不静默失败。
+props）：`hasChooser` 为假时卡片**不渲染「浏览…」按钮**（路径手填），路由存在但这次选择被
+拒绝时给出提示，不静默失败。
 
 提交后的变更还会调用 `control.invalidate()` 让**技能目录**失效。设置写入不碰文件系统，
 `fs/observed` 不会给它任何信号，不接线的话保存了新路径也要等到下一次无关的文件观察才生效。
@@ -244,8 +250,9 @@ props），两条路由都不存在时卡片给一条提示让人手填，不静
 ## 5. 已知边界与后续
 
 - **不监视文件**：没有 watcher。`.github` 的增删改在"下一个模型步骤"生效（因为每步重读），
-  但**技能目录**还需要一次失效信号；当前由 `fs/observed` 提供。设置卡片改的 `paths` 同理：
-  保存后从下一个步骤起生效，不需要任何失效逻辑。
+  但**技能目录**还需要一次失效信号：`.github` 树与 `paths` 条目下的文件观察由 `fs/observed`
+  提供，设置卡片提交的 `paths` 不碰文件系统、拿不到这个信号，所以卡片的提交回调显式调用
+  `control.invalidate()`（见 §3.8 末段）。
 - **只写一处**：插件不写工作区任何文件。唯一的写路径是设置卡片提交的 `paths`，它由宿主
   设置服务落进 DSH 自己的用户设置文档。
 - **卡片只覆盖 `paths`**：`maxBytes`、`scanSubdirectories`、`instructionDirs`、`skillDirs`

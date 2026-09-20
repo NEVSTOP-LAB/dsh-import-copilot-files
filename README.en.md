@@ -52,8 +52,10 @@ Every entry in `paths` **is** a configuration directory itself — the `.github`
 `D:\shared-ai\instructions\**` and `D:\shared-ai\skills\<name>\SKILL.md`. Each entry is exactly one
 configuration directory, so `scanSubdirectories` does **not** apply to it: its subdirectories are
 content (`instructions/`, `skills/`), not further configuration directories. The entry's own walk
-never reads a `.github` inside it either. So "one shared set of rules outside every workspace" is a
-folder name in `paths`.
+never reads a `.github` inside it either — only when that directory is *also* reached by the cwd
+walk can its `.github` be read, as a **project root's** `.github`, which is the cwd-side rule, the
+two sides being independent. So "one shared set of rules outside every workspace" is a folder name
+in `paths`.
 
 Paths may be absolute, relative to the session cwd, or **start with `~` for the home directory**
 (`~\x` reads the same as `~/x` on Windows). Only a *leading* `~` means that: `~name` and `a/~/b`
@@ -76,8 +78,11 @@ contributes one.
 
 | Injection panel | Source |
 | --- | --- |
-| **Instruction injection · `import-copilot-files`** | the VSCode-style instructions this plugin injects, from the workspace's `.github/` or from a configured directory in `paths` (including the default `~/.copilot`), labelled from `source.plugin` |
+| **Context injection · `import-copilot-files`** | the VSCode-style instructions this plugin injects, from the workspace's `.github/` or from a configured directory in `paths` (including the default `~/.copilot`), labelled from `source.plugin` |
 | **Skill catalog** | the `skills/` entries of those configuration directories whose `disable-model-invocation` is not `true` |
+
+The row's title is the client's own fixed "Context injection"; the source label beside it is this
+plugin's name, and the body is chosen by the message's `source.form` (`instructions`).
 
 The order is fixed: **AGENTS.md first, the instructions this plugin injects after it**.
 
@@ -101,11 +106,15 @@ The plugin row lives in [`cordis.patch.yml`](./cordis.patch.yml); its `config` f
 `paths` is also a field of the plugin's settings namespace (`import-copilot-files`), so the card
 titled **Import Copilot Files** (in a Chinese UI, 导入 Copilot 文件) appears under
 **Settings → Plugins → plugin configuration**: add, edit and remove paths, then save, discard, or
-reset to the deployment default.
+reset to the deployment default. The card has the same shape as every other card on that page: a
+collapsed header that discloses the fields, the add / browse / remove row, and discard / save in
+the footer.
 
 - *Browse* opens a folder chooser through **whichever route the deployment can serve**: the DSH
   Desktop window uses its own Windows chooser, every other composition uses the host's native
-  picker. Where neither exists the card says so and you type the path.
+  picker. Where the deployment has **no** route at all the card shows no *Browse* button and the
+  path is typed; where a route exists but refuses the pick (a `browse` backend behind a remote
+  page, for instance) the card says so.
 - The card edits `paths` only; `maxBytes`, `scanSubdirectories`, `instructionDirs` and
   `skillDirs` stay composition-only.
 - What it writes is DSH's own **user settings document** (the `import-copilot-files:` section
@@ -151,6 +160,22 @@ Confirm the row reached the composition:
 dsh --profile desktop --dump-config
 ```
 
+### Upgrading from the old name
+
+This plugin used to be called `dsh-import-vscode-ai-files`; the repository and the package are now
+`dsh-import-copilot-files`. A profile records the **package name**, so remove the old package first:
+
+```sh
+dsh plugin --profile desktop remove dsh-import-vscode-ai-files
+dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files
+```
+
+Both rows at once would inject the same configuration **twice**. The plugin id and the settings
+namespace are part of the same rename, so after upgrading also re-check `paths` under
+**Settings → Plugins → plugin configuration** and delete the leftover `import-vscode-ai-files:`
+section of `$DSH_HOME/settings.yaml` — a section under the old namespace is never read, so the paths
+it holds will not take effect.
+
 ### The peer-dependency warning during installation
 
 `dsh plugin add` passes pnpm's output through verbatim, so as long as **any** plugin in the profile
@@ -162,7 +187,16 @@ under-declares its peer dependencies you may see:
 
 **It is not about this plugin.** Every host package this plugin uses is declared as an **optional**
 peer, so none of them can be missing and none is ever reported. To find out who is actually short,
-run `pnpm peers check` in the profile directory.
+run this in the profile directory:
+
+```sh
+cd $DSH_HOME/profiles/<profile>
+pnpm peers check
+```
+
+It lists, package by package, which peer is missing and what range was wanted. Those belong to
+those packages: install the matching versions or wait for them to catch up. It neither comes from
+this plugin nor affects it.
 
 > [!IMPORTANT]
 > DSH's profile patch layer is **not hot-reloaded** — restart DSH after installing.
@@ -180,6 +214,7 @@ dsh plugin --profile desktop remove dsh-import-copilot-files
 
 Maintainer documentation is in Chinese:
 
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — how to contribute and submit changes
 - [docs/design.md](./docs/design.md) — architecture, mechanisms, source layout, known limits
 - [docs/compatibility.md](./docs/compatibility.md) — dependency surface, DSH seams, upgrade checklist, verification records
 - [docs/development.md](./docs/development.md) — local checks, tests and manual verification, packaging and release

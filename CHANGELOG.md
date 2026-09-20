@@ -51,12 +51,24 @@
   提示改成「每行是一个配置目录，等价于项目里的 `.github`」，不再说「项目根」。
 - **项目改名为 `dsh-import-copilot-files`**（[#12](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files/issues/12)）：
   npm 包名与 GitHub 仓库名改为 `dsh-import-copilot-files`；插件 id（`source.plugin`，即 GUI
-  「指令注入」行的标题）、设置命名空间与卡片标题一并改成 copilot 命名 —— 插件 id 与设置命名空间
-  由 `import-vscode-ai-files` 改为 `import-copilot-files`，技能 provider 的 `source` 标签由
-  `project-vscode` 改为 `project-copilot`，卡片标题由「导入 VSCode AI 文件」改为
-  「导入 Copilot 文件」（英文界面 `Import Copilot Files`）。GUI 里那条注入行的标题取自
-  `source.plugin`，因此会显示成 `import-copilot-files`。设置命名空间、卡片与 `paths` 字段都还没
-  随任何版本发布，所以没有需要迁移的旧配置。README 与文档里的安装命令、tarball 名同步改名。
+  注入行旁边的来源标签）、设置命名空间、技能 provider 的 `source` 标签与卡片标题一并改名 ——
+  插件 id 与设置命名空间由 `import-vscode-ai-files` 改为 `import-copilot-files`，
+  `source` 标签由 `project-vscode` 改为 `project-copilot`，卡片标题由「导入 VSCode AI 文件」
+  改为「导入 Copilot 文件」（英文界面 `Import Copilot Files`），注入行旁会显示成
+  `import-copilot-files`。README 与文档里的安装命令、tarball 名同步改名；卡片样式类前缀
+  `dsh-ivaf-*`（旧名的缩写）改为 `dsh-icf-*`，测试用的临时目录前缀改为 `copilot-ai-config-*`。
+  **从旧名升级**（三步）：
+  1. 已经装过旧包名的 profile（其 `package.json` 里记的是 `dsh-import-vscode-ai-files`）要先
+     移除旧包再装新名，否则两条组合行会让同一份配置**注入两次**：
+     `dsh plugin --profile <p> remove dsh-import-vscode-ai-files`，再
+     `dsh plugin --profile <p> add github:NEVSTOP-LAB/dsh-import-copilot-files`。
+  2. `$DSH_HOME/settings.yaml` 里旧命名空间的 `import-vscode-ai-files:` 小节**不再被读取**
+     （存储键就是命名空间），改名后它里面的 `paths` 不会生效 —— 把该小节改名成
+     `import-copilot-files:`，或在插件页里重新确认一次 `paths`。仓库从未打过 tag、也没有
+     Release，npm 上没有发布过版本，所以这不来自任何已发布的版本，而是 git 安装路径上已经
+     写下的配置。
+  3. 若在 profile 的 patch 层按旧行 `id` 覆盖过本插件的 `config`，那份覆盖同样随行改名失效，
+     需要改到新行上。
 - **文档按读者分层**（[#9](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files/issues/9)）：
   README（中英两份同结构）只留用户需要的信息 —— 功能、扫描范围、会话里看到什么、配置与插件页、
   安装；CONTRIBUTING 只留协作流程与文档地图；技术细节移进 `docs/`：`doc/design.md` 迁到
@@ -92,8 +104,16 @@
   后端，而 `browse` 没有 `pick` 能力 —— `uiWorkspace.pickDirectory()` 在那里必然被拒，
   旧的 `void browse().then(…)` 会把这次 rejection 丢进控制台，按钮看上去是坏的。
   现在按部署能用的路由取目录：DSH Desktop 窗口用它自己的 Windows 选择框
-  （`window.__DSH_DESKTOP_PICK_DIRECTORY__`），其余组合走宿主的原生选择器；两条都不存在时
-  卡片显示一条提示让人手填路径。
+  （`window.__DSH_DESKTOP_PICK_DIRECTORY__`），其余组合走宿主的原生选择器；两条路由都不存在的
+  部署不显示「浏览…」按钮（路径手填），路由存在但这次选择被拒时卡片给出提示。
+- **注入行的名字写错了**：客户端给这类消息固定的行标题是「上下文注入」（英文界面
+  `Context injection`），行内的来源标签才是 `source.plugin`；`source.form` 决定的是正文形态。
+  README 与 `docs/` 里原先按「指令注入」表述，现按 Desktop 2.0.13 的实现改正。
+- **文档迁移丢掉的内容已补回**：peer 警告里「缺的条目属于那些包自己」与 `pnpm peers check`
+  的运行目录、`paths` 条目同时落在 cwd 走查内时的 `.github` 归属说明、卡片的形态描述、
+  以及 README「更多文档」里的 CONTRIBUTING 链接。
+- **`docs/compatibility.md` 里的测试条数**：文档迁移时写成 133，实测为 126
+  （glob 9 / frontmatter 9 / discover 37 / 插件 43 / 设置 10 / 客户端 18）。
 
 ### 设计取舍
 
@@ -174,8 +194,8 @@
   各取自己的 `.github/`；`.github/instructions/` 内部递归到深度 4。
 - **独立可辨认的注入行**：指令经 `agent/pre-step` 作为一条带
   `source = { kind: 'plugin', plugin: 'import-vscode-ai-files', form: 'instructions' }`
-  的 user 消息注入，因此在 GUI 里显示为与 AGENTS.md 同级的「指令注入」条目，
-  而不是折叠进 `@deepseek-ai/dsh-system-prompt` 的状态快照里。
+  的 user 消息注入，因此在 GUI 里显示为与 AGENTS.md 同级的一条独立上下文注入行
+  （来源标签是该插件名），而不是折叠进 `@deepseek-ai/dsh-system-prompt` 的那一行里。
 - **顺序固定**：AGENTS.md 在前，`.github` 指令在后（见 [docs/pitfalls.md](./docs/pitfalls.md) 的注入顺序一条）。
 - **内容变化即追加**：渲染结果变化时追加一条新注入；文件消失时先给一条
   `Instructions removed:`，不静默丢弃。

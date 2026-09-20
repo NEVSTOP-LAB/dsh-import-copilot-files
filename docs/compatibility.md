@@ -19,7 +19,7 @@ manifest 如实描述「跑起来需要什么」，也让 `resolveModuleFallback
 
 唯一的例外是 `@deepseek-ai/schemastery`（设置 schema 必须是真的 schemastery），
 它由 DSH 的包带进 profile 共享的 `node_modules`，实测可解析：以**装好的**插件路径为基准
-`createRequire('…/profiles/<p>/node_modules/dsh-import-copilot-files/lib/index.js').resolve('@deepseek-ai/schemastery')`
+`createRequire('…/profiles/<p>/node_modules/dsh-import-copilot-files/index.js').resolve('@deepseek-ai/schemastery')`
 解析到 Desktop 自带的那份副本。即便如此也只用**惰性动态 import**：`index.js` 里只有
 `import('@deepseek-ai/schemastery')` 一处，且只在 `settings` 服务存在时才执行。所以 clone
 下来没有 `node_modules` 也能 `npm run check`；反过来，某个 profile 真的解析不到它时，丢的是
@@ -27,7 +27,7 @@ manifest 如实描述「跑起来需要什么」，也让 `resolveModuleFallback
 
 `lib/settings.js` 因此不 import 任何东西：`z` 由调用方传入，所以 schema 的形状能离线测试。
 
-### 1.2 对 DSH 的依赖是 5 个接缝 + 3 处内部契约
+### 1.2 对 DSH 的依赖是 6 个接缝 + 3 处内部契约
 
 | 用途 | 接缝 |
 | --- | --- |
@@ -53,19 +53,21 @@ turn。第三处没有 try/catch 可包：key 与 namespace 不一致时卡片**
 
 加载期不 import 任何 DSH 包，所以兼容性由 §1.2 的清单决定；`peerDependencies` 里的范围只是
 契约记录（全 optional，不会被安装，也不会拦安装）。
-**实测环境：DSH Desktop 2.0.11 / dsh `0.1.5-rc.2`**（与 `dsh-approval-mode` 相同）。
+**接缝实测环境：DSH Desktop 2.0.11 / dsh `0.1.5-rc.2`**（与 `dsh-approval-mode` 相同）；
+本机 2026-09-20 起装的是 Desktop 2.0.13，§3 的记录逐条写明各自跑在哪个版本上。
 
 ## 2. 升级 DSH 之后按顺序查
 
 1. `dsh --profile <profile> --dump-config` 里还有没有 `dsh-import-copilot-files` 行。
-2. 五个接缝还在不在 —— 用 `cordis_inspect_query` 查 `Event.listEvents` 与
+2. 六个接缝还在不在 —— 用 `cordis_inspect_query` 查 `Event.listEvents` 与
    `Service.listService`（`settings`、`skills`），以及客户端的 `Slots.listSubTree`
    （`settings.plugin.item` / `settings.plugins.tab` 是否仍由「插件配置」标签页声明）。
 3. 注入消息的四个字段（`id` / `role` / `content` / `source`）与 pre-step decision 的形状
    （`await next()` 之后返回 `{ …decision, messages }`）—— 对照
    `@deepseek-ai/dsh-llm/lib/types/message.js` 的 `createUserMessage`。
-4. 客户端标题：`dsh-client-ui-trajectory` / `dsh-client-ui-chat` 的 `contextProvenance`
-   与 `KNOWN_FORMS` 决定显示成「指令注入」还是「状态快照」。
+4. 注入行的渲染：`dsh-client-ui-chat` / `dsh-client-ui-trajectory` 的 `contextProvenance`
+   决定行标题（`role: 'recall'` 为「上下文召回」，其余为「上下文注入」）与来源标签
+   （`source.plugin`），`KNOWN_FORMS` + `contextBody(form)` 决定正文形态。
 5. `agent.session.header.cwd` 或 `actor.agent` 还在不在。
 6. 设置这条链：`dsh-settings` 的 `installSection` 签名与 `hooks`（`setSource` / `onChange`）、
    `dsh-client-ui-settings` 的 `bind(spec)` 与 scope 方法、`dsh-client-modules` 对
@@ -82,14 +84,15 @@ turn。第三处没有 try/catch 可包：key 与 namespace 不一致时卡片**
 
 | 接缝 | 结论 |
 | --- | --- |
-| `agent/pre-step` | 注入的 `form: 'instructions'` 消息确实到达模型，GUI 显示为独立「指令注入」行，标题取自 `source.plugin` |
+| `agent/pre-step` | 注入的 `form: 'instructions'` 消息确实到达模型，GUI 显示为独立一行，来源标签取自 `source.plugin`（行标题由客户端固定为「上下文注入」，2026-09-20 在 Desktop 2.0.13 上复核） |
 | `skills.registerProvider` | `list({ cwd })` 收到真实 cwd；`get()` 返回正文与 `resourceBase`；`invocation` 策略与 frontmatter 一致 |
 | `fs/observed` | `actor` 是 `ToolExecution`，携带 `.agent`（`id` 与 `session.header.cwd`），可按会话分桶 |
 
 另记两条否证，它们塑造了当前形态：
 
-- `ctx.systemPrompt.context` 的正文会被折叠进「状态快照」条目 —— 内容送达没问题，
-  但用户按标题扫过去会认为"没有注入"。
+- `ctx.systemPrompt.context` 的正文会被折叠进 `dsh-system-prompt` 那一行（`form: 'snapshot'`）
+  —— 内容送达没问题，但来源标签不属于本插件，用户扫过去会认为"没有注入"。
+- `dsh-tool-cordis` 的进程级 Inspect provider 排除了 preset 平面（[design.md §2.1](./design.md)）。
 - `dsh-tool-cordis` 的进程级 Inspect provider 排除了 preset 平面（[design.md §2.1](./design.md)）。
 
 ### 3.2 端到端
@@ -99,7 +102,8 @@ turn。第三处没有 try/catch 可包：key 与 namespace 不一致时卡片**
 
 ### 3.3 离线
 
-`npm run check`：9 个文件的 `node --check` + 133 项 `node:test`。
+`npm run check`：9 个文件的 `node --check` + 126 项 `node:test`（glob 9 / frontmatter 9 /
+discover 37 / 插件 43 / 设置 10 / 客户端 bundle 18）。
 `test/index.test.js` 对着假 Cordis 上下文驱动真实插件对象，覆盖注入顺序、跨会话隔离、
 预算边界、`applyTo` 正反例、移除通知、`paths`、默认的 `~/.copilot` 条目（含关掉它），
 以及**设置服务 → 发现流程**这条端到端链路（含 schema 装载失败时回落到组合配置）；
@@ -150,8 +154,8 @@ README）加上一段**可重跑的脚本**（[development.md §3](./development
 - [ ] 卡片真的出现在 **设置 → 插件 → 插件配置** 里（要重装插件 + 重启 DSH，见 [development.md §2.3](./development.md)）。
 - [ ] 展开后的卡片样式与同页其他插件的卡片一致（按宿主的 `PluginCard` 样式表逐类对齐，
       但没在真实 GUI 里比对过）。
-- [ ] 「浏览…」在 DSH Desktop 窗口里弹出 Windows 选择框并填回该行；两条路由都不可用的部署
-      （如远程浏览器访问的 `browse` 组合）显示提示而不是无反应。
+- [ ] 「浏览…」在 DSH Desktop 窗口里弹出 Windows 选择框并填回该行；两条路由都不存在的部署
+      不渲染该按钮（手填路径），路由存在但拒绝选择时显示提示而不是无反应。
 - [ ] 保存后 `$DSH_HOME/settings.yaml` 里出现 `import-copilot-files:` 小节，
       且下一个模型步骤开始生效。
 - [ ] 默认的 `~/.copilot` 条目在真实会话里注入（要重装插件 + 重启 DSH；只在发现流程上验证过）。
@@ -172,6 +176,7 @@ cd $DSH_HOME/profiles/<profile>
 pnpm peers check            # 加 --lockfile-only --json 只看 lockfile、机器可读
 ```
 
-它按「缺的 peer → 谁缺的 → 要什么范围」逐条列出来。想确认**本插件**不贡献任何一条，
+它按「缺的 peer → 谁缺的 → 要什么范围」逐条列出来。缺的那几条属于那些包自己，装上对应版本
+或等它们补齐即可 —— 与本插件无关，也不影响本插件运行。想确认**本插件**不贡献任何一条，
 就在一个只依赖本插件（`"dsh-import-copilot-files": "file:<repo>"`）的临时工程里跑同一条命令，
 应为 `missing: {}` 且退 0 —— 它声明的四个 peer 全是 optional，optional 的缺项不进这份清单。
