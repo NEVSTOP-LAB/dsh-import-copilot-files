@@ -17,8 +17,8 @@ import test from 'node:test'
 
 const SOURCE = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
 const NAMESPACE = 'import-copilot-files'
-const HEADER = 'dsh-ivaf-header'
-const BROWSE = 'dsh-ivaf-action'
+const HEADER = 'dsh-icf-header'
+const BROWSE = 'dsh-icf-action'
 
 /** Run the bundle and materialize its factory, as the client module system does. */
 function loadBundle(React) {
@@ -325,7 +325,7 @@ test('the card discloses its body from a header naming the plugin', () => {
 
   React.reset()
   const collapsed = component(props)
-  assert.equal(collapsed.props.className, 'dsh-ivaf-card')
+  assert.equal(collapsed.props.className, 'dsh-icf-card')
   assert.equal(byClass(collapsed, 'button', HEADER).props['aria-expanded'], false)
   assert.ok(nodes(collapsed).some((node) => textOf(node) === 'title'))
   assert.ok(nodes(collapsed).some((node) => textOf(node) === 'description'))
@@ -333,7 +333,7 @@ test('the card discloses its body from a header naming the plugin', () => {
   assert.equal(byText(collapsed, 'button', 'add'), undefined)
 
   const expanded = open(component, props, React)
-  assert.equal(expanded.props.className, 'dsh-ivaf-card dsh-ivaf-cardOpen')
+  assert.equal(expanded.props.className, 'dsh-icf-card dsh-icf-cardOpen')
   assert.ok(byText(expanded, 'button', 'add'))
 })
 
@@ -390,7 +390,7 @@ test('saving submits the parsed list with the revision the draft started from', 
 
   React.reset()
   // A save the host accepted puts the card back to rest, closed.
-  assert.equal(component(props).props.className, 'dsh-ivaf-card')
+  assert.equal(component(props).props.className, 'dsh-icf-card')
 })
 
 test('a read-only deployment says so and cannot be edited', () => {

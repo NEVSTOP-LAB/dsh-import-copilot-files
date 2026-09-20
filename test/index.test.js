@@ -23,7 +23,7 @@ const SHARED = fileURLToPath(new URL('./fixtures/shared', import.meta.url))
  * It is never created, so the default configured path (`~/.copilot`) contributes
  * nothing and no assertion can depend on whoever runs the suite having one.
  */
-const NO_HOME = join(tmpdir(), 'vscode-ai-config-no-home')
+const NO_HOME = join(tmpdir(), 'copilot-ai-config-no-home')
 
 const agentFor = (id, cwd = WORKSPACE) => ({ id, session: { header: { cwd } } })
 
@@ -31,7 +31,7 @@ const textOf = (message) => message.content.map((part) => part.text ?? '').join(
 
 /** A throwaway home holding the user-level `.copilot` configuration directory. */
 async function withHome(run) {
-  const home = mkdtempSync(join(tmpdir(), 'vscode-ai-config-home-'))
+  const home = mkdtempSync(join(tmpdir(), 'copilot-ai-config-home-'))
   try {
     mkdirSync(join(home, '.copilot', 'skills', 'home-skill'), { recursive: true })
     writeFileSync(join(home, '.copilot', 'copilot-instructions.md'), 'HOME-MARKER: user-level rules.')
@@ -263,7 +263,7 @@ test('a session without a cwd injects nothing', async () => {
 })
 
 test('a file that disappears produces a removal notice', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  const root = mkdtempSync(join(tmpdir(), 'copilot-ai-config-'))
   try {
     mkdirSync(join(root, '.github', 'instructions'), { recursive: true })
     const file = join(root, '.github', 'instructions', 'temporary.instructions.md')
@@ -319,7 +319,7 @@ test('get re-reads the body from disk, with frontmatter stripped', async () => {
 })
 
 test('a skill deleted after listing is treated as unavailable', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  const root = mkdtempSync(join(tmpdir(), 'copilot-ai-config-'))
   try {
     mkdirSync(join(root, '.github', 'skills', 'gone'), { recursive: true })
     const file = join(root, '.github', 'skills', 'gone', 'SKILL.md')

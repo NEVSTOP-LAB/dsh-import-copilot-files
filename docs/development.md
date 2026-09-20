@@ -11,7 +11,7 @@ dsh-import-copilot-files/
 ├── docs/                # 维护者文档：design / development / compatibility / pitfalls
 ├── package.json         # bundle manifest（dsh.bundle.patch）与 client manifest（dsh.client）
 ├── cordis.patch.yml     # 组合层：插入插件行
-├── index.js             # 插件入口：指令注入 + skill provider + fs/observed + 设置接线
+├── index.js             # 插件入口：指令注入 + skill provider + fs/observed + 设置接线（GUI 里那行叫「上下文注入」）
 ├── lib/
 │   ├── discover.js      # 扫描配置目录，产出 instructions 与 skills
 │   ├── frontmatter.js   # 极简 YAML frontmatter
@@ -105,8 +105,8 @@ CI（`.github/workflows/ci.yml`）在 ubuntu 上跑同一条命令。
 3. 点开卡片的标题栏，确认展开后的字段与页脚，以及行内的「浏览…」：在 DSH Desktop 窗口里按它
    应弹出 Windows 系统选择框，选中的目录直接填进那一行（仍是未保存的草稿，要再点「保存」）。
 4. 加一个真实存在的共享配置目录、保存，然后确认两件事：`$DSH_HOME/settings.yaml` 里出现
-   `import-copilot-files:` 小节；新会话的「指令注入」行里出现该目录下的指令
-   （标题是绝对路径）。注意该目录**自己**就是 `.github` 的等价物：直接放
+   `import-copilot-files:` 小节；新会话的「上下文注入 · `import-copilot-files`」行里出现该目录
+   下的指令（标题是绝对路径）。注意该目录**自己**就是 `.github` 的等价物：直接放
    `copilot-instructions.md`、`instructions/`、`skills/`，不要在它下面再建 `.github`。
 5. 「恢复默认」（字段被覆盖时才出现）应清掉用户覆盖，值回到 `cordis.patch.yml`；
    「放弃」只应丢弃未保存的草稿，不动已存储的值。
@@ -141,3 +141,8 @@ npm run pack        # → dist/dsh-import-copilot-files-<version>.tgz
 再打 tag 推送 `v<version>`。`.github/workflows/release.yml` 会校验两者一致、跑
 `npm run check`、打包、用 `scripts/release-notes.mjs` 从 CHANGELOG 组装 Release 正文并附上
 tarball。
+
+Release 正文取自与 tag 同号的 CHANGELOG 小节，所以**先 bump 再打 tag**：仓库当前没有 tag，
+`package.json` 停在 `0.1.0`，而 `[Unreleased]` 里累积的是改名后的内容 —— 直接打 `v0.1.0` 会把
+改名前的 `## [0.1.0]` 小节发出去，打 `v0.2.0` 则因版本不一致被工作流拒绝。改动插件 id /
+设置命名空间这类对外标识后，下一次发布是 `0.2.0`。

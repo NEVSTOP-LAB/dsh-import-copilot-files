@@ -64,8 +64,9 @@
   `uiWorkspace.pickDirectory()` 在那里**必然被拒**（`directory-picker/unavailable`）。
   可用的两条路由是 `window.__DSH_DESKTOP_PICK_DIRECTORY__`（Desktop / win32）与
   `uiWorkspace.pickDirectory()`（挂 `native` 后端的组合），两条都在时以前者为准 ——
-  否则一次「浏览」会弹两次框。两条都不在时卡片给提示让人手填，**不吞掉 rejection**：
-  `void browse().then(...)` 那种写法在按钮上表现为「点了没反应」。
+  否则一次「浏览」会弹两次框。两条都不在时 `hasChooser` 为假，卡片不渲染该按钮；
+  选择被拒时要给提示，**不吞掉 rejection**：`void browse().then(...)` 那种写法在按钮上
+  表现为「点了没反应」。
 - **设置 schema 不能自己写一个「形状像」的对象**。服务本身不检查 schema 的形状，所以手写的
   能通过 host；但浏览器要靠 `schema.toJSON()` 的 `{ uid, refs }` 信封把它重建出来渲染表单，
   重建失败时该 namespace **没有可编辑值**（`decode` 返回 undefined，卡片只能渲染空态），
