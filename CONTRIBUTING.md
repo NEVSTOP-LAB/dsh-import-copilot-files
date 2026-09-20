@@ -77,6 +77,12 @@ npm test          # node --test test/
 > 另外 Windows 检出默认 `core.autocrlf=true`，fixture 在盘上是 CRLF，所以对正文做逐字
 > 比较的断言要先按 EOL 归一化（`test/index.test.js` 里那条就是），否则 `npm run check`
 > 会在一台机器上红、在 CI（ubuntu）上绿。
+>
+> **同类的第二颗坑：断言里不要写死另一个平台的路径写法。** CI 跑 ubuntu，本机跑 Windows，
+> 而 `D:\shared` 在 POSIX 上**不是**绝对路径 —— 它会被当成相对 cwd 的条目，于是断言变成
+> 「开发机绿、CI 红」。要断言「绝对条目不被 cwd 影响」，就用 `join(tmpdir(), …)` 现拼一个
+> 本平台绝对路径（`test/discover.test.js` 的 `~` 用例就是这么写的）；只在本平台有意义的
+> 写法（`D:\x`、`\\server\x`）放进 `{ skip: process.platform !== 'win32' }` 的用例里。
 
 ### 2.1 测试用什么驱动
 
