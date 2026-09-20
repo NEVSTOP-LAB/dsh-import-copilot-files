@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { discover, resolveConfiguredPath } from '../lib/discover.js'
+import { discover, isPortableAbsolute, resolveConfiguredPath } from '../lib/discover.js'
 
 const WORKSPACE = fileURLToPath(new URL('./fixtures/workspace', import.meta.url))
 const SHARED = fileURLToPath(new URL('./fixtures/shared', import.meta.url))
@@ -321,6 +321,12 @@ test('a home-relative entry is placed without a session cwd, a relative one is n
   assert.equal(resolveConfiguredPath(cwd, 'relative-dir', home), join(cwd, 'relative-dir'))
   assert.equal(resolveConfiguredPath(cwd, 'D:\\shared', home), 'D:\\shared')
   assert.equal(resolveConfiguredPath(cwd, '\\\\server\\share', home), '\\\\server\\share')
+})
+
+test('portable absolute detection accepts drive roots and UNC shares, not malformed UNC', () => {
+  assert.equal(isPortableAbsolute('D:\\shared'), true)
+  assert.equal(isPortableAbsolute('\\\\server\\share'), true)
+  assert.equal(isPortableAbsolute('\\\\server'), false)
 })
 
 test('paths is optional and may be omitted entirely', () => {

@@ -202,7 +202,7 @@ test('the card is registered under the settings namespace the host serves', () =
   // A configured row is a configuration directory, not a project root.
   assert.doesNotMatch(dictionaries[0].dicts.zh.intro, /项目根/)
   assert.doesNotMatch(dictionaries[0].dicts.en.intro, /project root/i)
-  // The hint is where the one path form the field interprets is documented:
+  // The hint is where the one path forms the field interprets are documented:
   // discovery expands a leading `~`, so the field must say so.
   assert.match(dictionaries[0].dicts.zh.intro, /以 ~ 开头/)
   assert.match(dictionaries[0].dicts.en.intro, /leading ~/)

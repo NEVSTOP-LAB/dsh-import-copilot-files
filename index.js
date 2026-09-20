@@ -511,7 +511,7 @@ function touchesConfigDir(absolute, current, cwd, home) {
   for (const entry of current.paths) {
     const dir = resolveConfiguredPath(cwd, entry, home)
     if (dir === null) continue
-    const base = comparable(normalize(dir)).replace(/\/+$/, '')
+    const base = trimTrailingSlashes(comparable(normalize(dir)))
     if (base === '') continue
     if (observed === base || observed.startsWith(`${base}/`)) return true
   }
@@ -521,4 +521,10 @@ function touchesConfigDir(absolute, current, cwd, home) {
 /** Compare paths the way the platform's filesystem does. */
 function comparable(value) {
   return process.platform === 'win32' ? value.toLowerCase() : value
+}
+
+function trimTrailingSlashes(value) {
+  let end = value.length
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1
+  return end === value.length ? value : value.slice(0, end)
 }
