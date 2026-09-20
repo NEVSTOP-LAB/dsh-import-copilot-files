@@ -288,7 +288,9 @@ test('a bare ~ is the home directory, and ~name is an ordinary relative path', (
     assert.deepEqual(resolveWith('~home/x'), [join(WORKSPACE, '~home', 'x')])
     // Only a LEADING `~` means the home directory.
     assert.deepEqual(resolveWith('sub/~/x'), [join(WORKSPACE, 'sub', '~', 'x')])
-    assert.deepEqual(resolveWith('D:\\shared'), ['D:\\shared'])
+    // An absolute entry is placed as it is: the cwd anchor does not apply to it.
+    const absolute = join(tmpdir(), 'vscode-ai-config-absolute')
+    assert.deepEqual(resolveWith(absolute), [absolute])
   })
 })
 
