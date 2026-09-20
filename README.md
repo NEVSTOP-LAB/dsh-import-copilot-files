@@ -1,4 +1,4 @@
-# DSH-Import-VSCode-AI-Files
+# dsh-import-copilot-files
 
 DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**加载进**每一个** DSH 会话。
 同一份 `.github` 配置在 VSCode 和 DSH 里同时生效，不用维护两套。
@@ -10,7 +10,7 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 
 > [!NOTE]
 > 插件只**读取**工作区里的配置，不写任何工作区文件。它另外向 DSH 注册一个设置命名空间
-> （`import-vscode-ai-files`），使「额外路径」可以在 GUI 的**设置 → 插件 → 插件配置**里直接改；
+> （`import-copilot-files`），使「额外路径」可以在 GUI 的**设置 → 插件 → 插件配置**里直接改；
 > 写入的只有这一个字段，落点是 DSH 自己的用户设置文档（`$DSH_HOME/settings.yaml`）。
 
 ## 功能
@@ -30,34 +30,28 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 - `user-invocable: false` —— 不可被用户 `/name` 调用
 - 两个键省略即允许；拼写非法会让该技能被跳过并打一条警告
 
-### 扫描范围
+## 扫描范围
 
 扫描的单位是**配置目录** —— 一个按 `.github` 摆放的目录（`copilot-instructions.md`、
 `instructions/`、`skills/`）。两种东西会产生配置目录。
 
 会话 cwd 本身，加上它下面 `scanSubdirectories` 层（默认 1 层）的直接子目录：这些目录各是一个
 **项目根**，配置目录是它的 `.github/`。`.github/instructions/` 内部再递归（深度上限 4）。
-
 这样 `D:\NEVSTOP-LAB` 这类「多 repo 工作文件夹」就成立：文件夹自身和它直接下面的每个 repo
 都会贡献自己的 `.github`，互不干扰。不向上找祖先链，也不下探更深的层。
 
 `paths` 里的每个路径**本身就是配置目录**（等价于项目根的 `.github`，它下面不再有 `.github`）：
 `paths: [D:\shared-ai]` 读的是 `D:\shared-ai\copilot-instructions.md`、
-`D:\shared-ai\instructions\**` 与 `D:\shared-ai\skills\<name>\SKILL.md`。
-条目自身的走查不会去读它内部的 `.github` 树；只有当这个目录**同时**落在 cwd 走查范围内时，
-那棵树才可能以**项目根的** `.github` 身份被读到 —— 那是 cwd 侧的规则，两侧互不影响。
-所以「一份共享规则放在工作区外，所有仓库共用」只需要把那个文件夹写进 `paths`。
-每个条目恰好是一个配置目录，**不再**适用 `scanSubdirectories`：它的子目录是内容
-（`instructions/`、`skills/`），不是更多的配置目录。
+`D:\shared-ai\instructions\**` 与 `D:\shared-ai\skills\<name>\SKILL.md`。每个条目恰好是一个
+配置目录，所以 `scanSubdirectories` 不作用于它，它下面的子目录是内容而不是更多的配置目录；
+条目自身也不会去读它内部的 `.github` 树。所以「一份共享规则放在工作区外，所有仓库共用」
+只需要把那个文件夹写进 `paths`。
 
 路径可以是绝对路径，也可以是相对会话 cwd 的路径，**或以 `~` 开头表示用户主目录**
 （`~\x` 在 Windows 上等价于 `~/x`）；只有开头的那个 `~` 有这层含义，`~name` 与 `a/~/b`
-都是普通相对路径，环境变量与通配符不展开。不存在的路径贡献为空，不会报错。
-已经被扫过的配置目录不会走第二遍（点名 cwd 下某个项目自己的 `.github` 等于没点）。
-`instructionDirs` / `skillDirs` 在 `paths` 条目上会**去掉前导的 `.github` 段**：默认值
-`.github/instructions` 因此读作 `<路径>/instructions`，不以 `.github` 开头的目录原样拼接。
-通过 `paths` 扫到的指令，标题用**绝对路径**（`..\..` 链说不清位置），`applyTo` 相对它自己的
-配置目录（即该路径本身）匹配。
+都是普通相对路径，环境变量与通配符不展开。不存在的路径贡献为空，不会报错。已经被扫过的
+配置目录不会走第二遍（点名 cwd 下某个项目自己的 `.github` 等于没点）。通过 `paths` 扫到的
+指令，标题用**绝对路径**，`applyTo` 相对它自己的配置目录（即该路径本身）匹配。
 
 `paths` 的默认值是 `['~/.copilot']`——把**当前用户**的 Copilot 家目录当成一个配置目录，
 所以每个会话都自动带上那里的全局指令与技能。不想要它就在插件页里删掉那一行并保存
@@ -70,7 +64,7 @@ cwd 的祖先链读取，因此只在当前工作目录这条链上生效；`pat
 
 | GUI 的注入面板 | 来源 |
 | --- | --- |
-| **指令注入 · `import-vscode-ai-files`** | 本插件注入的 VSCode 风格指令，来自工作区的 `.github/` 或 `paths` 里的配置目录（含默认的 `~/.copilot`；标题取自 `source.plugin`） |
+| **指令注入 · `import-copilot-files`** | 本插件注入的 VSCode 风格指令，来自工作区的 `.github/` 或 `paths` 里的配置目录（含默认的 `~/.copilot`；标题取自 `source.plugin`） |
 | **技能目录** | 上述配置目录的 `skills/` 中 `disable-model-invocation` 不为 `true` 的技能 |
 
 顺序固定为 **AGENTS.md 在前，本插件注入的指令在后**。
@@ -92,19 +86,16 @@ cwd 的祖先链读取，因此只在当前工作目录这条链上生效；`pat
 
 ### 在插件页里改路径
 
-`paths` 同时是该插件设置命名空间（`import-vscode-ai-files`）的一个字段，所以可以在
-**设置 → 插件 → 插件配置** 里找到标题为「导入 VSCode AI 文件」（英文界面
-`Import VSCode AI Files`）的那张卡片：逐行增删路径、保存、放弃或恢复默认。
-卡片的形态与同页其他插件的卡片一致：折叠的标题栏（展开后才是字段），字段下面是
-「添加路径 / 浏览… / 删除」，右下角是「放弃 / 保存」。
+`paths` 同时是该插件设置命名空间（`import-copilot-files`）的一个字段，所以可以在
+**设置 → 插件 → 插件配置** 里找到标题为「导入 Copilot 文件」（英文界面
+`Import Copilot Files`）的那张卡片：逐行增删路径、保存、放弃或恢复默认。
 
 - 「浏览…」按当前部署**能用的那条路由**打开目录选择器：DSH Desktop 窗口用它自己的 Windows
-  系统选择框，其余组合走宿主的原生选择器。两条路由都不存在时卡片会说明原因并让人手填路径，
-  不会点了没反应。
+  系统选择框，其余组合走宿主的原生选择器。两条路由都不存在时卡片会说明原因并让人手填路径。
 - 卡片只改 `paths`；`maxBytes`、`scanSubdirectories`、`instructionDirs`、`skillDirs`
   仍只在组合配置里设。
 - 写的是 **DSH 的用户设置文档**（`$DSH_HOME/settings.yaml` 的
-  `import-vscode-ai-files:` 小节），不是工作区的任何文件；该文档是热重载的。
+  `import-copilot-files:` 小节），不是工作区的任何文件；该文档是热重载的。
 - 保存是**乐观并发**的：卡片带着打开草稿时的 revision 提交，期间别处改过就被拒绝并提示重试，
   不会覆盖别人的改动。保存成功后以宿主回读的值确认，而不是假定写入成功。
 - 组合配置里的 `config` 是这一层的**基底**：「放弃」只丢弃未保存的草稿，而「恢复默认」
@@ -118,7 +109,7 @@ cwd 的祖先链读取，因此只在当前工作目录这条链上生效；`pat
 从 GitHub 仓库安装：
 
 ```sh
-dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-vscode-ai-files
+dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files
 ```
 
 > [!NOTE]
@@ -128,14 +119,14 @@ dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-vscode-ai-files
 建议锁定提交，避免后续更新改变实际内容：
 
 ```sh
-dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-vscode-ai-files#<commit-sha>
+dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files#<commit-sha>
 ```
 
-也可以从 [Releases](https://github.com/NEVSTOP-LAB/dsh-import-vscode-ai-files/releases)
+也可以从 [Releases](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files/releases)
 下载 tarball 安装：
 
 ```sh
-dsh plugin --profile desktop add ./dsh-import-vscode-ai-files-0.1.0.tgz
+dsh plugin --profile desktop add ./dsh-import-copilot-files-0.1.0.tgz
 ```
 
 安装后确认组合层里出现该插件：
@@ -154,15 +145,7 @@ dsh --profile desktop --dump-config
 ```
 
 **它说的不是本插件**：本插件的宿主包全部声明为**可选** peer，既不会缺，也不会被 pnpm 报出来。
-想知道到底是谁缺什么，在 profile 目录里跑一次：
-
-```sh
-cd $DSH_HOME/profiles/<profile>
-pnpm peers check
-```
-
-它逐条列出「哪个包缺哪个 peer、要求什么范围」。缺的那几条属于那些包自己，装上对应版本或等它们
-补齐即可 —— 与本插件无关，也不影响本插件运行。
+想知道到底是谁缺什么，在 profile 目录里跑一次 `pnpm peers check` 即可。
 
 > [!IMPORTANT]
 > DSH 的 profile patch 层**不热重载**，安装后要**重启 DSH**。
@@ -172,8 +155,16 @@ pnpm peers check
 卸载：
 
 ```sh
-dsh plugin --profile desktop remove dsh-import-vscode-ai-files
+dsh plugin --profile desktop remove dsh-import-copilot-files
 ```
+
+## 更多文档
+
+- [docs/design.md](./docs/design.md) —— 架构与关键机制、源码结构、已知边界
+- [docs/compatibility.md](./docs/compatibility.md) —— 依赖面、DSH 接缝、升级校验清单与验证记录
+- [docs/development.md](./docs/development.md) —— 本地检查、测试与手工验证、打包发版
+- [docs/pitfalls.md](./docs/pitfalls.md) —— 开发坑
+- [CHANGELOG.md](./CHANGELOG.md) —— 每个版本的变更
 
 ## License
 
