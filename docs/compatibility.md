@@ -146,11 +146,12 @@ README）加上一段**可重跑的脚本**（[development.md §3](./development
 | 日期 | DSH | 结论 |
 | --- | --- | --- |
 | 2026-09-18 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 三个接缝与两处内部契约逐条实测通过；端到端验证见 §3.2 |
-| 2026-09-21 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 设置与卡片这条链**读实现**核对：`installSection` 签名与 hooks、namespace 文法、schema 必须可被浏览器重建、卡片按 namespace 派发、`dsh.client` 的解析与 bundle 缺失时的失败方式、客户端 scope 的 `bind`/`mutate` 形状；另确认本机挂载了 `dsh-settings-file` 且 `$DSH_HOME/settings.yaml` 可写 |
 | 2026-09-20 | Desktop 2.0.13 / dsh 0.1.5-rc.2 | 「安装时那条 peer 警告」定位：在 `~/.dsh/profiles/desktop` 上 `pnpm peers check --lockfile-only --json`，`missing` 全是 `@xxxyz/dsh-mcp-manager`、`dsh-approval-mode`、`dsh-context`、`dshmarket` 的缺项，本插件不在其中；补上四个 optional peer 后，在含本插件的 lockfile 上同一命令得到 `missing: {}`、退 0。默认 `~/.copilot` 条目只在**发现流程**上实测（本机解析到 `C:\Users\nevstop\.copilot`，读到该目录下的 `copilot-instructions.md` 与 `skills/`、无告警） |
+| 2026-09-21 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 设置与卡片这条链**读实现**核对：`installSection` 签名与 hooks、namespace 文法、schema 必须可被浏览器重建、卡片按 namespace 派发、`dsh.client` 的解析与 bundle 缺失时的失败方式、客户端 scope 的 `bind`/`mutate` 形状；另确认本机挂载了 `dsh-settings-file` 且 `$DSH_HOME/settings.yaml` 可写 |
 
-表里的 DSH 版本按当时的记录照抄（09-18 / 09-21 两行记的是 2.0.11）；本机 2026-09-20 起装的是
-Desktop 2.0.13，`npm run check`（126 项）与 `npm run verify:settings`（9/9）今天在其上复跑通过。
+表里的 DSH 版本按当时的记录照抄：09-20 与 09-21 两行记的版本互相矛盾（一处 2.0.13、一处
+2.0.11），以实际安装为准。本机现装 Desktop 2.0.13，`npm run check`（126 项）与
+`npm run verify:settings`（9/9）在其上复跑通过。
 
 ## 4. 还没实测的部分（做完请划掉）
 
