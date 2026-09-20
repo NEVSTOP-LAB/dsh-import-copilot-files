@@ -253,7 +253,7 @@ test('paths that are not usable strings are ignored', () => {
   assert.deepEqual(pathDirs, [])
 })
 
-test('a leading ~ in a configured path is the user s home directory', () => {
+test("a leading ~ in a configured path is the user's home directory", () => {
   withHome((home) => {
     mkdirSync(join(home, '.copilot', 'skills', 'home-skill'), { recursive: true })
     writeFileSync(join(home, '.copilot', 'copilot-instructions.md'), 'HOME-RULE')
@@ -319,6 +319,8 @@ test('a home-relative entry is placed without a session cwd, a relative one is n
 
   const cwd = join(home, 'workspace')
   assert.equal(resolveConfiguredPath(cwd, 'relative-dir', home), join(cwd, 'relative-dir'))
+  assert.equal(resolveConfiguredPath(cwd, 'D:\\shared', home), 'D:\\shared')
+  assert.equal(resolveConfiguredPath(cwd, '\\\\server\\share', home), '\\\\server\\share')
 })
 
 test('paths is optional and may be omitted entirely', () => {

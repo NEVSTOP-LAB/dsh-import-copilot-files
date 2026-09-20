@@ -210,3 +210,9 @@ test('normalizeSettings fills the documented defaults and drops unusable paths',
   assert.equal(normalizeSettings({ maxBytes: -1 }).maxBytes, 65536)
   assert.equal(normalizeSettings({ scanSubdirectories: 3 }).scanSubdirectories, 3)
 })
+
+test('normalizeSettings returns an isolated paths array for defaults', () => {
+  const first = normalizeSettings(undefined)
+  first.paths.push('mutated')
+  assert.deepEqual(normalizeSettings(undefined).paths, ['~/.copilot'])
+})

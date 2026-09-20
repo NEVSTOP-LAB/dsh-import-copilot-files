@@ -333,7 +333,7 @@ export function normalizeSettings(config) {
     scanSubdirectories: nonNegative(config?.scanSubdirectories, DEFAULT_SCAN_SUBDIRECTORIES),
     instructionDirs: stringList(config?.instructionDirs, DEFAULT_INSTRUCTION_DIRS),
     skillDirs: stringList(config?.skillDirs, DEFAULT_SKILL_DIRS),
-    paths: stringList(config?.paths, DEFAULT_PATHS),
+    paths: [...stringList(config?.paths, DEFAULT_PATHS)],
   }
 }
 
