@@ -53,8 +53,9 @@ turn。第三处没有 try/catch 可包：key 与 namespace 不一致时卡片**
 
 加载期不 import 任何 DSH 包，所以兼容性由 §1.2 的清单决定；`peerDependencies` 里的范围只是
 契约记录（全 optional，不会被安装，也不会拦安装）。
-**接缝实测环境：DSH Desktop 2.0.11 / dsh `0.1.5-rc.2`**（与 `dsh-approval-mode` 相同）；
-本机 2026-09-20 起装的是 Desktop 2.0.13，§3 的记录逐条写明各自跑在哪个版本上。
+**接缝与设置链的实测记录在 DSH Desktop 2.0.11 / dsh `0.1.5-rc.2` 上**（与 `dsh-approval-mode`
+相同）；本机现装 Desktop 2.0.13，`npm run check` 与 `npm run verify:settings` 在其上复跑通过
+（§3.5）。
 
 ## 2. 升级 DSH 之后按顺序查
 
@@ -65,9 +66,11 @@ turn。第三处没有 try/catch 可包：key 与 namespace 不一致时卡片**
 3. 注入消息的四个字段（`id` / `role` / `content` / `source`）与 pre-step decision 的形状
    （`await next()` 之后返回 `{ …decision, messages }`）—— 对照
    `@deepseek-ai/dsh-llm/lib/types/message.js` 的 `createUserMessage`。
-4. 注入行的渲染：`dsh-client-ui-chat` / `dsh-client-ui-trajectory` 的 `contextProvenance`
-   决定行标题（`role: 'recall'` 为「上下文召回」，其余为「上下文注入」）与来源标签
-   （`source.plugin`），`KNOWN_FORMS` + `contextBody(form)` 决定正文形态。
+4. 注入行的渲染：`dsh-client-ui-chat` 的 `ContextInjectionRow` 用 `contextProvenance` 固定行标题
+   （`role: 'recall'` 为「跨会话召回」，其余为「上下文注入」）与来源标签（`source.plugin`），
+   `source.form` 经 `contextBody(form)` 决定正文形态，合法值取自 `KNOWN_FORMS`；
+   `dsh-client-ui-trajectory` 另有自己的 `contextProvenance` / `KNOWN_FORMS`，上下文条目按
+   `kind.context` 标成「上下文」。
 5. `agent.session.header.cwd` 或 `actor.agent` 还在不在。
 6. 设置这条链：`dsh-settings` 的 `installSection` 签名与 `hooks`（`setSource` / `onChange`）、
    `dsh-client-ui-settings` 的 `bind(spec)` 与 scope 方法、`dsh-client-modules` 对
@@ -92,7 +95,6 @@ turn。第三处没有 try/catch 可包：key 与 namespace 不一致时卡片**
 
 - `ctx.systemPrompt.context` 的正文会被折叠进 `dsh-system-prompt` 那一行（`form: 'snapshot'`）
   —— 内容送达没问题，但来源标签不属于本插件，用户扫过去会认为"没有注入"。
-- `dsh-tool-cordis` 的进程级 Inspect provider 排除了 preset 平面（[design.md §2.1](./design.md)）。
 - `dsh-tool-cordis` 的进程级 Inspect provider 排除了 preset 平面（[design.md §2.1](./design.md)）。
 
 ### 3.2 端到端
@@ -145,7 +147,10 @@ README）加上一段**可重跑的脚本**（[development.md §3](./development
 | --- | --- | --- |
 | 2026-09-18 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 三个接缝与两处内部契约逐条实测通过；端到端验证见 §3.2 |
 | 2026-09-21 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 设置与卡片这条链**读实现**核对：`installSection` 签名与 hooks、namespace 文法、schema 必须可被浏览器重建、卡片按 namespace 派发、`dsh.client` 的解析与 bundle 缺失时的失败方式、客户端 scope 的 `bind`/`mutate` 形状；另确认本机挂载了 `dsh-settings-file` 且 `$DSH_HOME/settings.yaml` 可写 |
-| 2026-09-20 | Desktop 2.0.13 / dsh 0.1.5-rc.2 | 「安装时那条 peer 警告」定位：在 `~/.dsh/profiles/desktop` 上 `pnpm peers check --lockfile-only --json`，`missing` 全是 `@xxxyz/dsh-mcp-manager`、`dsh-approval-mode`、`dsh-context`、`dshmarket` 的缺项，本插件不在其中；补上四个 optional peer 后，在含本插件的 lockfile 上同一命令得到 `missing: {}`、退 0。默认 `~/.copilot` 条目只在**发现流程**上实测（本机解析到 `C:\Users\nevstop\.copilot`，读到 `copilot-instructions.md` 与四个技能、无告警） |
+| 2026-09-20 | Desktop 2.0.13 / dsh 0.1.5-rc.2 | 「安装时那条 peer 警告」定位：在 `~/.dsh/profiles/desktop` 上 `pnpm peers check --lockfile-only --json`，`missing` 全是 `@xxxyz/dsh-mcp-manager`、`dsh-approval-mode`、`dsh-context`、`dshmarket` 的缺项，本插件不在其中；补上四个 optional peer 后，在含本插件的 lockfile 上同一命令得到 `missing: {}`、退 0。默认 `~/.copilot` 条目只在**发现流程**上实测（本机解析到 `C:\Users\nevstop\.copilot`，读到该目录下的 `copilot-instructions.md` 与 `skills/`、无告警） |
+
+表里的 DSH 版本按当时的记录照抄（09-18 / 09-21 两行记的是 2.0.11）；本机 2026-09-20 起装的是
+Desktop 2.0.13，`npm run check`（126 项）与 `npm run verify:settings`（9/9）今天在其上复跑通过。
 
 ## 4. 还没实测的部分（做完请划掉）
 

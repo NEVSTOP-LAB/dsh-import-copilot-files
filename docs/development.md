@@ -85,7 +85,7 @@ CI（`.github/workflows/ci.yml`）在 ubuntu 上跑同一条命令。
 
 1. `agent/pre-step` —— 注册一个监听器，注入一条带
    `source = { kind: 'plugin', plugin: 'probe', form: 'instructions' }` 的消息，
-   确认它作为 user 消息到达模型，并在 GUI 注入面板里显示成**独立条目**（标题取自
+   确认它作为 user 消息到达模型，并在 GUI 注入面板里显示成**独立条目**（来源标签取自
    `source.plugin`）。
 2. `skills.list({ cwd })` / `skills.get(name, { cwd })` —— 确认 provider 对该工作区返回的
    `invocation` 策略、`resourceBase` 与正文。

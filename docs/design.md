@@ -53,9 +53,9 @@ preset 平面看起来更"就近"（一次会话一实例），但**走不通**�
   自定义目录在两侧都按原样拼接）；剩下的部分里若**仍含** `.github` 段（`x/.github/y`）该条目
   被拒绝，而走查本身在配置目录上跳过隐藏目录 —— 于是 `.github`、`.`、`./.github`、`''`、`/`
   这些退化写法都落在配置目录上、却依然读不到它内部的 `.github` 树。这层过滤只作用于
-  **指令文件的走查**（`walkInstructionFiles` 的 `skipHidden`，配置目录才开），cwd 侧的项目根
-  走查**没有**它 —— 两边刻意不对称：配置目录里的点目录是内容，而项目根里的 `.github` 正是
-  配置本身。另外注意这条说的是
+  **指令文件的走查**（`walkInstructionFiles` 的 `skipHidden`，配置目录才开）；项目根侧的同一条
+  指令文件走查不过滤 —— 两边刻意不对称：配置目录里的点目录是内容，而项目根里的 `.github`
+  正是配置本身。另外注意这条说的是
   **条目自身的走查** —— 若该目录同时落在 cwd 走查范围内，那棵树仍可能以项目根 `.github` 的
   身份被读到，那是另一侧的规则。`scanSubdirectories` 不作用于它 —— 它的子目录是内容而不是更多
   的配置目录。
@@ -102,7 +102,7 @@ source: { kind: 'plugin', plugin: 'import-copilot-files', form: 'instructions' }
 ```
 
 客户端把这条消息渲染成一条**上下文注入**行：行标题固定为「上下文注入」（`provenance.role`
-为 `recall` 时是「上下文召回」），行内的来源标签取自 `source.plugin`，正文与折叠摘要由
+为 `recall` 时是「跨会话召回」），行内的来源标签取自 `source.plugin`，正文与折叠摘要由
 `source.form` 决定（`KNOWN_FORMS = ['instructions','catalog','snapshot','notice','relay','recall']`，
 `form: 'instructions'` 走 `InstructionsBody`）。
 
@@ -264,7 +264,8 @@ props）：`hasChooser` 为假时卡片**不渲染「浏览…」按钮**（路�
 - **`paths` 是配置目录，不是项目根**：一个条目恰好是一个配置目录（等价于项目根的 `.github`），
   `scanSubdirectories` 不作用于它，它内部的 `.github` 树不被**条目自身的走查**读取（若它同时
   也在 cwd 走查范围内，那棵树仍可能以项目根 `.github` 的身份被读到），它下面的子目录也不会被
-  当作更多的配置目录。该字段尚未随任何版本发布（见 CHANGELOG），所以没有需要迁移的旧配置；
+  当作更多的配置目录。该字段尚未随任何版本发布（见 CHANGELOG），所以没有已发布的旧配置需要
+  迁移 —— git 安装路径上用户层写下的旧命名空间小节见 CHANGELOG 的改名一条；
   把工作区外的仓库根改写成 `paths: [<repo>/.github]` 会同时把 `applyTo` 锚点从仓库根移到
   `.github`。
 - **不处理 `AGENTS.md`**：它属于核心的 `dsh-agent-instructions`（project root → cwd 祖先链），

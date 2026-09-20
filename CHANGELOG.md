@@ -20,7 +20,8 @@
   照样能定位，相对条目仍然跳过；发现与「目录失效判定」共用同一个解析函数，不会各写一份。
 - **工作区之外的配置目录**（[#2](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files/issues/2)、
   [#6](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files/issues/6)）：
-  新增配置字段 `paths`。该字段尚未随任何版本发布，所以没有需要迁移的旧配置。
+  新增配置字段 `paths`。该字段尚未随任何版本发布，所以没有已发布的旧配置需要迁移
+  （git 安装路径上用户层已经写下的旧命名空间小节见下面改名一条）。
   每个条目是一个**配置目录**，等价于项目根里的 `.github`：`paths: [D:\shared-ai]` 读的是
   `D:\shared-ai\copilot-instructions.md`、`D:\shared-ai\instructions\**` 与
   `D:\shared-ai\skills\<name>\SKILL.md`，它下面**不再有** `.github` 段；条目自身的走查也不会去
@@ -107,8 +108,10 @@
   （`window.__DSH_DESKTOP_PICK_DIRECTORY__`），其余组合走宿主的原生选择器；两条路由都不存在的
   部署不显示「浏览…」按钮（路径手填），路由存在但这次选择被拒时卡片给出提示。
 - **注入行的名字写错了**：客户端给这类消息固定的行标题是「上下文注入」（英文界面
-  `Context injection`），行内的来源标签才是 `source.plugin`；`source.form` 决定的是正文形态。
-  README 与 `docs/` 里原先按「指令注入」表述，现按 Desktop 2.0.13 的实现改正。
+  `Context injection`），跨会话召回那条是「跨会话召回」（`Session recall`），行内的来源标签
+  才是 `source.plugin`；`source.form` 决定的是正文形态，正文渲染在 `dsh-client-ui-chat` 里
+  （`dsh-client-ui-trajectory` 另有自己的 `kind.context` 标签）。README 与 `docs/` 里原先按
+  「指令注入」表述，现按 Desktop 2.0.13 的实现改正。
 - **文档迁移丢掉的内容已补回**：peer 警告里「缺的条目属于那些包自己」与 `pnpm peers check`
   的运行目录、`paths` 条目同时落在 cwd 走查内时的 `.github` 归属说明、卡片的形态描述、
   以及 README「更多文档」里的 CONTRIBUTING 链接。
@@ -160,7 +163,8 @@
   Windows 上 `.github\instructions` 与 `.github/instructions` 等价。插件侧再补三条：
   「配置目录里的改动会让技能目录失效」、大小写不同的同一路径同样会失效，以及会话还没有 cwd 时
   相对路径的条目不会被错误地解析（绝对路径仍然照常生效）。
-- `npm run verify:settings`：拿真实 `@deepseek-ai/schemastery`（本机 Desktop 2.0.11）
+- `npm run verify:settings`：拿真实 `@deepseek-ai/schemastery`（当时本机 Desktop 2.0.11；
+  2026-09-20 在 Desktop 2.0.13 上复跑仍 9/9）
   把设置链走一遍 9/9 —— 解析组合配置与用户层、拒绝非法写入、`toJSON()` 信封、
   **从信封重建并校验**（浏览器渲染卡片走的就是这一步），以及两半的 namespace 是同一个字符串。
   该命令在没有安装 DSH 的环境下跳过并退 0，所以不进 `npm run check`；它现在从 `index.js` 导入
@@ -175,7 +179,7 @@
 - **还没实测**：卡片在真实 GUI 里出现、保存落盘与生效、「恢复默认」回到组合配置、
   以及修好后的「浏览…」在 DSH Desktop 窗口里真的弹出选择框；新的默认条目在真实会话里的注入也要
   重装插件并重启 DSH 之后才看得见（本轮只验证到发现流程：默认值在本机解析成
-  `C:\Users\nevstop\.copilot`，读到那份 `copilot-instructions.md` 与四个技能，无告警）。
+  `C:\Users\nevstop\.copilot`，读到该目录下的 `copilot-instructions.md` 与 `skills/`、无告警）。
   清单与手工步骤见 [docs/development.md §2.3](./docs/development.md)
   与 [docs/compatibility.md §4](./docs/compatibility.md)。
 
