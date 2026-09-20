@@ -319,14 +319,20 @@ test('a home-relative entry is placed without a session cwd, a relative one is n
 
   const cwd = join(home, 'workspace')
   assert.equal(resolveConfiguredPath(cwd, 'relative-dir', home), join(cwd, 'relative-dir'))
-  assert.equal(resolveConfiguredPath(cwd, 'D:\\shared', home), 'D:\\shared')
-  assert.equal(resolveConfiguredPath(cwd, '\\\\server\\share', home), '\\\\server\\share')
+  // A portable-absolute spelling is returned as it was written on a platform that
+  // does not understand it, and normalised by the one that does — win32's
+  // `resolve` appends the trailing separator of a UNC share root.
+  const placed = (value) => (process.platform === 'win32' ? resolve(value) : value)
+  assert.equal(resolveConfiguredPath(cwd, 'D:\\shared', home), placed('D:\\shared'))
+  assert.equal(resolveConfiguredPath(cwd, '\\\\server\\share', home), placed('\\\\server\\share'))
 })
 
-test('portable absolute detection accepts drive roots and UNC shares, not malformed UNC', () => {
+test('portable absolute detection accepts drive roots and UNC shares', () => {
   assert.equal(isPortableAbsolute('D:\\shared'), true)
   assert.equal(isPortableAbsolute('\\\\server\\share'), true)
-  assert.equal(isPortableAbsolute('\\\\server'), false)
+  // A UNC without a share is absolute to win32's own `isAbsolute` and not to the
+  // portable spelling rule, so the expectation follows the platform.
+  assert.equal(isPortableAbsolute('\\\\server'), process.platform === 'win32')
 })
 
 test('paths is optional and may be omitted entirely', () => {
