@@ -16,9 +16,9 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const SOURCE = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
-const NAMESPACE = 'import-vscode-ai-files'
-const HEADER = 'dsh-ivaf-header'
-const BROWSE = 'dsh-ivaf-action'
+const NAMESPACE = 'import-copilot-files'
+const HEADER = 'dsh-icf-header'
+const BROWSE = 'dsh-icf-action'
 
 /** Run the bundle and materialize its factory, as the client module system does. */
 function loadBundle(React) {
@@ -183,7 +183,7 @@ function mountCard(scope, picker, React) {
 
 test('the bundle registers the package id the shell looks up', () => {
   const { registration } = loadBundle({})
-  assert.equal(registration.id, 'dsh-import-vscode-ai-files')
+  assert.equal(registration.id, 'dsh-import-copilot-files')
   assert.equal(typeof registration.factory, 'function')
 })
 
@@ -197,8 +197,8 @@ test('the card is registered under the settings namespace the host serves', () =
   assert.deepEqual(dictionaries.map((entry) => entry.ns), [NAMESPACE])
   // The card's title is what the settings page shows for this plugin, so it is
   // pinned here rather than merely checked for being non-empty.
-  assert.equal(dictionaries[0].dicts.zh.title, '导入 VSCode AI 文件')
-  assert.equal(dictionaries[0].dicts.en.title, 'Import VSCode AI Files')
+  assert.equal(dictionaries[0].dicts.zh.title, '导入 Copilot 文件')
+  assert.equal(dictionaries[0].dicts.en.title, 'Import Copilot Files')
   // A configured row is a configuration directory, not a project root.
   assert.doesNotMatch(dictionaries[0].dicts.zh.intro, /项目根/)
   assert.doesNotMatch(dictionaries[0].dicts.en.intro, /project root/i)
@@ -325,7 +325,7 @@ test('the card discloses its body from a header naming the plugin', () => {
 
   React.reset()
   const collapsed = component(props)
-  assert.equal(collapsed.props.className, 'dsh-ivaf-card')
+  assert.equal(collapsed.props.className, 'dsh-icf-card')
   assert.equal(byClass(collapsed, 'button', HEADER).props['aria-expanded'], false)
   assert.ok(nodes(collapsed).some((node) => textOf(node) === 'title'))
   assert.ok(nodes(collapsed).some((node) => textOf(node) === 'description'))
@@ -333,7 +333,7 @@ test('the card discloses its body from a header naming the plugin', () => {
   assert.equal(byText(collapsed, 'button', 'add'), undefined)
 
   const expanded = open(component, props, React)
-  assert.equal(expanded.props.className, 'dsh-ivaf-card dsh-ivaf-cardOpen')
+  assert.equal(expanded.props.className, 'dsh-icf-card dsh-icf-cardOpen')
   assert.ok(byText(expanded, 'button', 'add'))
 })
 
@@ -390,7 +390,7 @@ test('saving submits the parsed list with the revision the draft started from', 
 
   React.reset()
   // A save the host accepted puts the card back to rest, closed.
-  assert.equal(component(props).props.className, 'dsh-ivaf-card')
+  assert.equal(component(props).props.className, 'dsh-icf-card')
 })
 
 test('a read-only deployment says so and cannot be edited', () => {
@@ -522,7 +522,7 @@ test('the card stylesheet is installed once and removed on teardown', () => {
     const { module } = loadBundle({})
     module.apply(ctx)
     assert.equal(appended.filter((entry) => entry !== 'removed').length, 1)
-    assert.equal(appended[0].dataset.plugin, 'dsh-import-vscode-ai-files')
+    assert.equal(appended[0].dataset.plugin, 'dsh-import-copilot-files')
     for (const effect of effects) effect.dispose()
     assert.deepEqual(appended.filter((entry) => entry === 'removed').length, 1)
   } finally {

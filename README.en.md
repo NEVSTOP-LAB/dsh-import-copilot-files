@@ -1,94 +1,51 @@
-# DSH-Import-VSCode-AI-Files
+# dsh-import-copilot-files
 
-A DSH plugin that loads a workspace's own **VSCode / Copilot style AI configuration** into
-**every** DeepSeek Harness session. The same `.github` files then drive both VSCode and DSH —
-no second copy to maintain.
+A DSH plugin that loads a workspace's own **VSCode / Copilot style AI configuration** (`.github/`)
+into **every** DSH session, so one copy drives both VSCode and DSH. It can also carry
+**configuration directories outside the workspace**, one shared set of rules for every repository —
+**the current user's `~/.copilot`** (the Copilot CLI's home) is included by default.
 
-It can also load further **configuration directories** that live outside the workspace —
-directories equivalent to a project's `.github` folder, with no `.github` of their own — one
-shared set of rules feeding every repository. **One is there by default**: the current user's
-`[user]\.copilot` (written `~/.copilot`, where `~` is the home directory), the Copilot CLI's own
-home, which holds `copilot-instructions.md` and `skills/`.
-
-> [!NOTE]
-> The plugin only **reads** your workspace configuration, and it writes no workspace file. It
-> additionally registers a DSH settings namespace (`import-vscode-ai-files`) so the extra paths
-> can be edited in the GUI under **Settings → Plugins → plugin configuration**; that single
-> field is what it writes, into DSH's own user settings document (`$DSH_HOME/settings.yaml`).
+The plugin only **reads** configuration and writes no workspace file; the one write path is the GUI
+card that edits the extra configuration directories, into DSH's own `$DSH_HOME/settings.yaml`.
 
 ## Features
 
 | File | Behaviour |
 | --- | --- |
-| `.github/copilot-instructions.md` | always injected — the equivalent of VSCode's repo-wide instructions |
-| `.github/instructions/**/*.instructions.md` | scoped by the frontmatter `applyTo`: files without it are always injected; files with it are injected only once the session has actually looked at a matching file |
-| `.github/skills/<name>/SKILL.md` | registered as DSH skills — `name` + `description` reach the skill catalog, the body loads on demand |
+| `.github/copilot-instructions.md` | always injected — VSCode's repo-wide instructions |
+| `.github/instructions/**/*.instructions.md` | scoped by the frontmatter `applyTo`: without it always injected; with it injected only once the session has actually looked at a matching file |
+| `.github/skills/<name>/SKILL.md` | registered as DSH skills: `name` + `description` reach the catalog, the body loads on demand |
 
-`applyTo` follows VSCode's rule: patterns match **relative to the root the file belongs to** — a
-project root for the workspace walk, and the configured path itself for a `paths` entry — and
-support `**`, `*`, `?`, `{a,b}`, `[abc]`, comma-separated.
+`applyTo` uses VSCode's syntax (`**`, `*`, `?`, `{a,b}`, `[abc]`, comma-separated) and matches
+**relative to the root the file belongs to**: a project root on the workspace side, the entry itself
+for a `paths` entry. `SKILL.md`'s `disable-model-invocation` / `user-invocable` mean what they mean
+for a native DSH skill; omitting either allows it, an unparseable spelling drops the skill with a
+warning.
 
-`SKILL.md` frontmatter means the same as it does for a native DSH skill:
+## Scan scope
 
-- `disable-model-invocation: true` — keeps the skill out of the catalog (the model cannot see it,
-  the user can still invoke it with `/name`)
-- `user-invocable: false` — the user cannot invoke it with `/name`
-- omitting either allows it; an unparseable spelling drops the skill with a warning
-
-### Scan scope
-
-The unit of scanning is a **configuration directory** — one laid out like `.github`, holding
-`copilot-instructions.md`, `instructions/` and `skills/`. Two things produce one.
-
-The session cwd, plus the direct subdirectories `scanSubdirectories` levels below it (1 by
-default): each of those is a **project root**, and its configuration directory is its `.github/`.
-`.github/instructions/` is walked recursively (depth capped at 4).
-
-That is what makes a multi-repo folder such as `D:\NEVSTOP-LAB` work: the folder itself and every
-repository directly under it contribute their own `.github`, without interfering. The ancestor
-chain is deliberately not walked, and neither are deeper levels.
+The session cwd, plus the direct subdirectories `scanSubdirectories` levels below it (1 by default),
+each contributing its own `.github/` (`.github/instructions/` is walked to depth 4). The ancestor
+chain is deliberately not walked. That is what makes a multi-repo folder such as `D:\NEVSTOP-LAB`
+work: the folder itself and every repository directly under it contribute their own `.github`,
+without interfering.
 
 Every entry in `paths` **is** a configuration directory itself — the `.github`-equivalent, with no
-`.github` segment under it. `paths: [D:\shared-ai]` reads `D:\shared-ai\copilot-instructions.md`,
-`D:\shared-ai\instructions\**` and `D:\shared-ai\skills\<name>\SKILL.md`. The entry's own walk never
-reads a `.github` inside it; only when that directory is *also* reached by the cwd walk can its
-`.github` be read — as a **project root's** `.github`, which is the cwd-side rule, the two sides
-being independent. So "one shared set of
-rules outside every workspace" is a folder name in `paths`. Each entry is exactly one configuration
-directory, so `scanSubdirectories` does **not** apply to it: its subdirectories are content
-(`instructions/`, `skills/`), not further configuration directories.
+`.github` under it — so `scanSubdirectories` does not apply to it. Paths may be absolute, relative
+to the session cwd, or **start with `~` for the home directory** (only a *leading* `~` means that;
+`~name` and `a/~/b` are ordinary relative paths, and neither environment variables nor wildcards are
+expanded). A path that does not exist contributes nothing. The default is `['~/.copilot']`; remove
+that row in the Plugins page and save `paths: []` to turn it off.
 
-Paths may be absolute, relative to the session cwd, or **start with `~` for the home directory**
-(`~\x` reads the same as `~/x` on Windows). Only a *leading* `~` means that: `~name` and `a/~/b`
-are ordinary relative paths, and neither environment variables nor wildcards are expanded. A path
-that does not exist contributes nothing rather than failing. A configuration directory the scan
-already read is not read again (naming a project's own `.github` adds nothing). For a `paths`
-entry, `instructionDirs` / `skillDirs` lose a leading `.github` segment — the default
-`.github/instructions` therefore means `<path>/instructions`, while a directory that does not start
-with `.github` is joined as it is. Instructions reached through `paths` are labelled with their
-**absolute** path (`..\..` chains say less), and `applyTo` matches relative to that entry's own
-configuration directory.
-
-`paths` defaults to `['~/.copilot']` — the **current user's** Copilot home, treated as one
-configuration directory, so every session picks up the global instructions and skills kept there.
-To turn it off, remove that row in the Plugins page and save (`paths: []`), or point it elsewhere.
-
-**AGENTS.md is not this plugin's business**: it belongs to the DSH core
-(`dsh-agent-instructions`), which reads it along the project-root-to-cwd ancestor chain. It is
-therefore a current-working-directory concept, and neither `paths` nor a subdirectory root
-contributes one.
+**AGENTS.md is not this plugin's business**: it belongs to the DSH core (`dsh-agent-instructions`),
+read along the cwd ancestor chain.
 
 ## What you see in a session
 
-| Injection panel | Source |
-| --- | --- |
-| **Instruction injection · `import-vscode-ai-files`** | the VSCode-style instructions this plugin injects, from the workspace's `.github/` or from a configured directory in `paths` (including the default `~/.copilot`), labelled from `source.plugin` |
-| **Skill catalog** | the `skills/` entries of those configuration directories whose `disable-model-invocation` is not `true` |
-
-The order is fixed: **AGENTS.md first, the instructions this plugin injects after it**.
-
-A change appends a new injection rather than rewriting the old one, and a file that disappears
-produces an explicit `Instructions removed:` note instead of being dropped silently.
+One injection row titled "Context injection" and labelled `import-copilot-files`, plus the skills of
+those configuration directories whose `disable-model-invocation` is not `true`. The order is fixed:
+**AGENTS.md first**. A change appends a new injection rather than rewriting the old one, and a file
+that disappears produces an explicit `Instructions removed:` note.
 
 ## Configuration
 
@@ -96,102 +53,63 @@ The plugin row lives in [`cordis.patch.yml`](./cordis.patch.yml); its `config` f
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `maxBytes` | `65536` | per-injection byte budget; over it, files are omitted first and the last one truncated, with the loss stated in the body |
+| `maxBytes` | `65536` | per-injection byte budget; over it, files are omitted first and the last one truncated, with the loss stated |
 | `scanSubdirectories` | `1` | levels below the cwd treated as project roots (the cwd walk only) |
 | `instructionDirs` | `['.github/instructions']` | where `*.instructions.md` lives, relative to a configuration directory (a `paths` entry drops the leading `.github`) |
 | `skillDirs` | `['.github/skills']` | where `<name>/SKILL.md` lives (same rule) |
-| `paths` | `['~/.copilot']` | configuration directories **outside** the workspace, equivalent to a project's `.github` (no `.github` under them); a leading `~` is the home directory |
+| `paths` | `['~/.copilot']` | configuration directories **outside** the workspace, equivalent to a project's `.github`; a leading `~` is the home directory |
 
 ### Editing the paths in the Plugins page
 
-`paths` is also a field of the plugin's settings namespace (`import-vscode-ai-files`), so the card
-titled **Import VSCode AI Files** (in a Chinese UI, 导入 VSCode AI 文件) appears under
-**Settings → Plugins → plugin configuration**: add, edit and
-remove paths, then save, discard, or reset to the deployment default. The card has the same shape
-as every other card on that page: a collapsed header that discloses the fields, the
-add / browse / remove row, and discard / save in the footer.
+The card titled **Import Copilot Files** (in a Chinese UI, 导入 Copilot 文件) under
+**Settings → Plugins → plugin configuration** adds, edits and removes `paths`, and saves, discards
+or resets to the deployment default; `maxBytes`, `scanSubdirectories`, `instructionDirs` and
+`skillDirs` stay composition-only.
 
-- *Browse* opens a folder chooser through **whichever route the deployment can serve**: the DSH
-  Desktop window uses its own Windows chooser, every other composition uses the host's native
-  picker. Where neither exists the card says so and you type the path — a press never ends in
-  silence.
-- The card edits `paths` only; `maxBytes`, `scanSubdirectories`, `instructionDirs` and
-  `skillDirs` stay composition-only.
-- What it writes is DSH's own **user settings document** (the `import-vscode-ai-files:` section
-  of `$DSH_HOME/settings.yaml`), never a workspace file; that document is hot-reloaded.
-- Saving is **optimistic**: the card submits with the revision its draft started from, so a
-  concurrent edit elsewhere is rejected with a retry prompt instead of being overwritten. After a
-  save the card re-reads what the host answered rather than assuming the write landed.
-- The composition `config` is this layer's **base**: *Discard* only forgets unsaved edits, while
-  *Reset* (offered once the field is overridden) clears the user override, so the value falls back
-  to `cordis.patch.yml`.
-- Where no settings service is mounted (rare), the plugin runs on the composition config alone —
-  it just has no card.
+- What it writes is DSH's own **user settings document** (the `import-copilot-files:` section of
+  `$DSH_HOME/settings.yaml`), never a workspace file, and it is hot-reloaded; the composition
+  `config` is this layer's base, so *Reset* clears the user override. Saving is **optimistic** — the
+  card submits with the revision its draft started from, a concurrent edit is rejected with a retry
+  prompt, and the card re-reads what the host answered.
+- *Browse* uses **whichever route the deployment can serve** (the DSH Desktop window uses its own
+  Windows chooser, other compositions the host's native picker); where the deployment has no route
+  the card shows no *Browse* button and the path is typed.
 
 ## Install
 
-Requires the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness).
-
-From the GitHub repository:
-
-```sh
-dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-vscode-ai-files
-```
-
-> [!NOTE]
-> `--profile web` is the default profile. DSH Desktop uses `--profile desktop`; any other
-> profile is whatever its directory is named.
-
-Pin a commit so a later update cannot change what runs:
+Requires the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness). `--profile web` is the
+default profile; DSH Desktop uses `--profile desktop`.
 
 ```sh
-dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-vscode-ai-files#<commit-sha>
+dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files
+dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files#<commit-sha>  # pin a commit
+dsh plugin --profile desktop add ./dsh-import-copilot-files-0.1.0.tgz   # or the tarball from a Release
+dsh --profile desktop --dump-config                                     # confirm the row is in the composition
+dsh plugin --profile desktop remove dsh-import-copilot-files            # uninstall
 ```
 
-Or install the tarball from [Releases](https://github.com/NEVSTOP-LAB/dsh-import-vscode-ai-files/releases):
-
-```sh
-dsh plugin --profile desktop add ./dsh-import-vscode-ai-files-0.1.0.tgz
-```
-
-Confirm the row reached the composition:
-
-```sh
-dsh --profile desktop --dump-config
-```
+> [!IMPORTANT]
+> The profile patch layer is **not hot-reloaded** — restart DSH after installing. Afterwards,
+> editing `.github/**` in a repository or a file under a `paths` entry takes effect **immediately**
+> (it is re-read on every model step); only editing the plugin's own source needs another restart.
 
 ### The peer-dependency warning during installation
 
-`dsh plugin add` passes pnpm's output through verbatim, so as long as **any** plugin in the profile
-under-declares its peer dependencies you may see:
+`dsh plugin add` passes pnpm's output through verbatim, so **any** plugin in the profile that
+under-declares a peer dependency makes it appear. **It is not about this plugin** — every host
+package this plugin uses is an optional peer. To see who is actually short, run
+`cd $DSH_HOME/profiles/<profile> && pnpm peers check`; those belong to those packages and do not
+affect this one.
 
-```
-[WARN] Issues with peer dependencies found. Run `pnpm peers check` to list them.
-```
+## More documentation
 
-**It is not about this plugin.** Every host package this plugin uses is declared as an **optional**
-peer, so none of them can be missing and none is ever reported. To find out who is actually short:
-
-```sh
-cd $DSH_HOME/profiles/<profile>
-pnpm peers check
-```
-
-It lists, package by package, which peer is missing and what range was wanted. Those belong to
-those packages: install the matching versions or wait for them to catch up. It neither comes from
-this plugin nor affects it.
-
-> [!IMPORTANT]
-> DSH's profile patch layer is **not hot-reloaded** — restart DSH after installing.
-> Once installed, editing `.github/**` inside a repository — or the files under a configured
-> `paths` entry — takes effect **immediately** (it is re-read on every model step); only editing
-> the plugin's own source needs another restart.
-
-Uninstall:
-
-```sh
-dsh plugin --profile desktop remove dsh-import-vscode-ai-files
-```
+- [Releases](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files/releases) — tarballs and version history
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — how to contribute and submit changes
+- [docs/design.md](./docs/design.md) — architecture, mechanisms, source layout, known limits
+- [docs/compatibility.md](./docs/compatibility.md) — dependency surface, DSH seams, upgrade checklist, verification records
+- [docs/development.md](./docs/development.md) — local checks, tests and manual verification, packaging and release
+- [docs/pitfalls.md](./docs/pitfalls.md) — development pitfalls
+- [CHANGELOG.md](./CHANGELOG.md) — changes per release
 
 ## License
 

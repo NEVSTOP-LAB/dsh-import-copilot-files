@@ -18,7 +18,7 @@
  *
  * It needs a DSH installation, so it is NOT part of `npm run check`; it skips
  * (exit 0, with a note) when schemastery cannot be found, and fails loudly when
- * it can. See CONTRIBUTING §4.2.
+ * it can. See docs/development.md §3.
  *
  * Usage:
  *   node scripts/verify-settings-schema.mjs

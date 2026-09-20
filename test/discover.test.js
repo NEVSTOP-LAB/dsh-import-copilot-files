@@ -16,7 +16,7 @@ const slash = (value) => value.split('\\').join('/')
 
 /** A throwaway home directory holding the one configuration directory the tests name. */
 function withHome(run) {
-  const home = mkdtempSync(join(tmpdir(), 'vscode-ai-config-home-'))
+  const home = mkdtempSync(join(tmpdir(), 'copilot-ai-config-home-'))
   try {
     return run(home)
   } finally {
@@ -214,7 +214,7 @@ test('re-listing a directory does not turn its children into configuration roots
   // The rule that replaced "a second visit gets a fresh depth budget": a
   // configured path is ONE configuration directory, so nothing below it is
   // reached, however the path was named.
-  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  const root = mkdtempSync(join(tmpdir(), 'copilot-ai-config-'))
   try {
     const child = join(root, 'child')
     const grandchild = join(child, 'grandchild')
@@ -233,7 +233,7 @@ test('re-listing a directory does not turn its children into configuration roots
 test('a configured path deeper than the cwd budget is still scanned', () => {
   // The other half of the rule: naming it is the request, so the visit budget is
   // what limits the cwd walk, not the configured path.
-  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  const root = mkdtempSync(join(tmpdir(), 'copilot-ai-config-'))
   try {
     const deep = join(root, 'a', 'b')
     mkdirSync(deep, { recursive: true })
@@ -289,7 +289,7 @@ test('a bare ~ is the home directory, and ~name is an ordinary relative path', (
     // Only a LEADING `~` means the home directory.
     assert.deepEqual(resolveWith('sub/~/x'), [join(WORKSPACE, 'sub', '~', 'x')])
     // An absolute entry is placed as it is: the cwd anchor does not apply to it.
-    const absolute = join(tmpdir(), 'vscode-ai-config-absolute')
+    const absolute = join(tmpdir(), 'copilot-ai-config-absolute')
     assert.deepEqual(resolveWith(absolute), [absolute])
   })
 })
@@ -312,7 +312,7 @@ test('a home-relative entry is placed without a session cwd, a relative one is n
   // A session's first observation can arrive before its cwd does. `~` carries
   // its own anchor, so it still resolves; a relative entry cannot be placed then
   // and must be refused rather than guessed at against the process cwd.
-  const home = resolve(tmpdir(), 'vscode-ai-config-home')
+  const home = resolve(tmpdir(), 'copilot-ai-config-home')
   assert.equal(resolveConfiguredPath(null, '~/.copilot', home), join(home, '.copilot'))
   assert.equal(resolveConfiguredPath(null, join(home, 'shared'), home), join(home, 'shared'))
   assert.equal(resolveConfiguredPath(null, 'relative-dir', home), null)
@@ -320,13 +320,20 @@ test('a home-relative entry is placed without a session cwd, a relative one is n
   const cwd = join(home, 'workspace')
   assert.equal(resolveConfiguredPath(cwd, 'relative-dir', home), join(cwd, 'relative-dir'))
   assert.equal(resolveConfiguredPath(cwd, 'D:\\shared', home), 'D:\\shared')
-  assert.equal(resolveConfiguredPath(cwd, '\\\\server\\share', home), '\\\\server\\share')
+  // The portable spelling is returned as it was written on the platform that does
+  // not understand it; win32 normalises it through its own `resolve`, which
+  // appends the trailing separator of a UNC share root.
+  const uncShare = process.platform === 'win32' ? '\\\\server\\share\\' : '\\\\server\\share'
+  assert.equal(resolveConfiguredPath(cwd, '\\\\server\\share', home), uncShare)
 })
 
-test('portable absolute detection accepts drive roots and UNC shares, not malformed UNC', () => {
+test('portable absolute detection accepts drive roots and UNC shares', () => {
   assert.equal(isPortableAbsolute('D:\\shared'), true)
   assert.equal(isPortableAbsolute('\\\\server\\share'), true)
-  assert.equal(isPortableAbsolute('\\\\server'), false)
+  // A share-less UNC is absolute to win32's own `isAbsolute` and therefore
+  // accepted there, while the portable spelling rule needs a share segment.
+  // Either way discovery reads no directory for it.
+  assert.equal(isPortableAbsolute('\\\\server'), process.platform === 'win32')
 })
 
 test('paths is optional and may be omitted entirely', () => {
@@ -381,8 +388,8 @@ test('AGENTS.md is never discovered, neither under the cwd nor under a configure
   // AGENTS.md belongs to the DSH core, which reads it along the
   // project-root-to-cwd ancestor chain. This plugin contributes `.github`-style
   // configuration only, so an AGENTS.md anywhere must stay invisible here.
-  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
-  const shared = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  const root = mkdtempSync(join(tmpdir(), 'copilot-ai-config-'))
+  const shared = mkdtempSync(join(tmpdir(), 'copilot-ai-config-'))
   try {
     writeFileSync(join(root, 'AGENTS.md'), 'AGENTS-MARKER: core-owned, never this plugin s.')
     mkdirSync(join(root, '.github'), { recursive: true })
@@ -406,7 +413,7 @@ test('two units resolving to the same source still inject it once', () => {
   // directories: the project root's `instructions/` and the configured path's
   // `instructions/` are one and the same. Every source must still appear once —
   // in the rendered instructions and in the skill catalog.
-  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  const root = mkdtempSync(join(tmpdir(), 'copilot-ai-config-'))
   try {
     mkdirSync(join(root, 'instructions'), { recursive: true })
     mkdirSync(join(root, 'skills', 'top-skill'), { recursive: true })
@@ -434,7 +441,7 @@ test('no instructionDirs spelling lets a configured path reach its own .github t
   // The strip empties out for these spellings, so the base becomes the
   // configuration directory itself. Its `.github` is content, not configuration:
   // hidden directories are not walked there.
-  const root = mkdtempSync(join(tmpdir(), 'vscode-ai-config-'))
+  const root = mkdtempSync(join(tmpdir(), 'copilot-ai-config-'))
   try {
     const cwd = join(root, 'cwd')
     mkdirSync(cwd, { recursive: true })

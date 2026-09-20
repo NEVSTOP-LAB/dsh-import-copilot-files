@@ -1,4 +1,4 @@
-# DSH-Import-VSCode-AI-Files 设计文档
+# dsh-import-copilot-files 设计文档
 
 ## 1. 背景与目标
 
@@ -33,7 +33,7 @@ preset 平面看起来更"就近"（一次会话一实例），但**走不通**�
 把插件放进 `cordis` 的 preset 副本会在挂载时就撞上
 `inspect provider "Service" is already registered`。
 
-实测（对照实验）：把同一份 composition 里**唯一**一行 `tool-cordis` 禁用后，
+对照实验：把同一份 composition 里**唯一**一行 `tool-cordis` 禁用后，
 `agentPresets.standingKeyFor` 立即 `mounted OK`；不禁用则失败。这一条排除了 preset 平面。
 
 顺带一提，host 平面还带来两个好处：不必让用户切 preset；`dsh plugin add` 装完即对所有会话生效。
@@ -52,9 +52,10 @@ preset 平面看起来更"就近"（一次会话一实例），但**走不通**�
   `.github` 段，其余部分原样拼接（cwd 侧不剥离、仍旧拼到项目根上，所以 `custom/rules` 这类
   自定义目录在两侧都按原样拼接）；剩下的部分里若**仍含** `.github` 段（`x/.github/y`）该条目
   被拒绝，而走查本身在配置目录上跳过隐藏目录 —— 于是 `.github`、`.`、`./.github`、`''`、`/`
-  这些退化写法都落在配置目录上、却依然读不到它内部的 `.github` 树。这里跳过的是隐藏目录与
-  `node_modules`（与 `listDirectories` 一致）；cwd 侧的项目根走查**没有**这层过滤，两边刻意
-  不对称：配置目录里的点目录是内容，而项目根里的 `.github` 正是配置本身。另外注意这条说的是
+  这些退化写法都落在配置目录上、却依然读不到它内部的 `.github` 树。这层过滤只作用于
+  **指令文件的走查**（`walkInstructionFiles` 的 `skipHidden`，配置目录才开）；项目根侧的同一条
+  指令文件走查不过滤 —— 两边刻意不对称：配置目录里的点目录是内容，而项目根里的 `.github`
+  正是配置本身。另外注意这条说的是
   **条目自身的走查** —— 若该目录同时落在 cwd 走查范围内，那棵树仍可能以项目根 `.github` 的
   身份被读到，那是另一侧的规则。`scanSubdirectories` 不作用于它 —— 它的子目录是内容而不是更多
   的配置目录。
@@ -97,17 +98,21 @@ cwd 侧是项目根，`paths` 侧是该条目自身 —— 否则 `src/*.ts` 这
 指令经 `agent/pre-step` 作为一条 **user 消息**折进当前步骤的消息批次，带
 
 ```js
-source: { kind: 'plugin', plugin: 'import-vscode-ai-files', form: 'instructions' }
+source: { kind: 'plugin', plugin: 'import-copilot-files', form: 'instructions' }
 ```
 
-客户端按 `source.form` 决定一条注入行的形态与标题
-（`KNOWN_FORMS = ['instructions','catalog','snapshot','notice','relay','recall']`）。
+客户端把这条消息渲染成一条**上下文注入**行：行标题固定为「上下文注入」（`provenance.role`
+为 `recall` 时是「跨会话召回」），行内的来源标签取自 `source.plugin`，正文与折叠摘要由
+`source.form` 决定（`KNOWN_FORMS = ['instructions','catalog','snapshot','notice','relay','recall']`，
+`form: 'instructions'` 走 `InstructionsBody`）。
 
 > **为什么不用 `ctx.systemPrompt.context`**：它的正文会被收进 `dsh-system-prompt` 那条
-> 「状态快照 · @deepseek-ai/dsh-system-prompt」里，标题不带仓库路径，看上去就像"根本没注入"。
-> `agent/pre-step` + `form: 'instructions'` 才能拿到与 AGENTS.md 同级的独立「指令注入」行。
+> 上下文注入行（`form: 'snapshot'`，来源标签是 `@deepseek-ai/dsh-system-prompt`），看不出是
+> 哪个仓库的配置，看上去就像"根本没注入"。
+> `agent/pre-step` + `form: 'instructions'` + 自己的 `source.plugin` 才能拿到与 AGENTS.md
+> 同级、可辨认来源的独立行。
 
-代价是两处**内部契约**（升级时优先查，见 CONTRIBUTING §4）：
+代价是两处**内部契约**（升级时优先查，见 [compatibility.md](./compatibility.md)）：
 
 1. **注入消息的形状**。profile 本地插件 import 不到 harness 的 `node_modules`，
    无法调用 `@deepseek-ai/dsh-llm` 的 `createUserMessage`，只能按字面复刻它的四个字段
@@ -143,7 +148,7 @@ host 平面只有**一个实例服务所有会话**，所以每个会话的 `cwd
 
 - `list({ cwd })` 每次重新扫盘；`cwd` 由真实消费方（`dsh-tool-skill`）带着会话 cwd 传入。
 - `get(candidate)` 每次重新读正文，所以改文件不需要任何失效逻辑。
-- `source: 'project-vscode'`、`rank: 150`（夹在内置的 `project-dsh`(100) 与
+- `source: 'project-copilot'`、`rank: 150`（夹在内置的 `project-dsh`(100) 与
   `project-agents`(200) 之间）、`resourceBase` 指向 bundle 目录，让 bundle 内的
   `references/` 可被引用。
 - `disable-model-invocation` / `user-invocable` 与原生语义一致；拼写非法则丢弃该技能并告警。
@@ -165,7 +170,7 @@ host 平面只有**一个实例服务所有会话**，所以每个会话的 `cwd
 原因不是洁癖：profile 本地插件向上找不到 harness 自己的 `node_modules`，
 任何 `@deepseek-ai/*` 或第三方 import 都会在加载期失败。
 
-`dependencies` 仍然为空，`peerDependencies` 里只列宿主契约（`@deepseek-ai/cordis`、
+`dependencies` 为空，`peerDependencies` 里只列宿主契约（`@deepseek-ai/cordis`、
 `@deepseek-ai/dsh-settings`、`@deepseek-ai/schemastery`、`react`）并且**四个全部 optional**：
 这个插件在 profile 里本来就能缺其中任何一个（见 §3.8 的两处可选），而 optional 的 peer 不会进
 pnpm 的 peer 问题清单，所以这份声明既如实又不会给别人的安装添警告。加载期依赖因此仍是零。
@@ -189,7 +194,7 @@ browser: ctx.settingsScope.bind({ namespace: ns })
          ctx.slots.register({ name: 'settings.plugin.item', key: ns, locale: ns, … }, Card)
 ```
 
-四周内部契约，都在 §5.3 有对应实测/签名依据：
+四周内部契约（签名与实测依据见 [compatibility.md §3.4](./compatibility.md)）：
 
 1. **`ctx.inject(['settings'], …)` 而不是静态 `inject`。** `settings` 是可选服务：
    在它上线前调用回调不会发生；`installSection` 在服务消失时把 source 换回组合配置。
@@ -221,11 +226,11 @@ browser: ctx.settingsScope.bind({ namespace: ns })
 （Remote 会答 `directory-picker/unavailable`），所以那里走 DSH Desktop 装在页面上的
 `window.__DSH_DESKTOP_PICK_DIRECTORY__`；其余组合挂的是 `native` 后端，走
 `uiWorkspace.pickDirectory()`。路由在**每次点击时**解析（宿主按 slot entry 记忆化注入的
-props），两条路由都不存在时卡片给一条提示让人手填，不静默失败。
+props）：`hasChooser` 为假时卡片**不渲染「浏览…」按钮**（路径手填），路由存在但这次选择被
+拒绝时给出提示，不静默失败。
 
 提交后的变更还会调用 `control.invalidate()` 让**技能目录**失效。设置写入不碰文件系统，
-`fs/observed` 不会给它任何信号，不接线的话保存了新路径也要等到下一次无关的文件观察才生效 ——
-这条是评审发现的，`test/index.test.js` 里钉住。
+`fs/observed` 不会给它任何信号，不接线的话保存了新路径也要等到下一次无关的文件观察才生效。
 
 仓库内的 bundle 是**手写的 lazy-CJS**（`window.__ModuleLoader__.load({ id, factory })`），
 不引入任何构建步骤——与 dsh-git-rollback 这类第三方插件的做法一致。
@@ -242,71 +247,12 @@ props），两条路由都不存在时卡片给一条提示让人手填，不静
 | `lib/client.js` | browser half：设置卡片（手写 lazy-CJS bundle，无构建步骤） |
 | `scripts/verify-settings-schema.mjs` | 拿真实 schemastery 复核设置链（找得到才跑，找不到跳过并退 0） |
 
-## 5. 验证记录
-
-### 5.1 接缝实测（2026-09-18，Desktop 2.0.11 / dsh 0.1.5-rc.2）
-
-| 接缝 | 结论 |
-| --- | --- |
-| `agent/pre-step` | 注入的 `form: 'instructions'` 消息确实到达模型，GUI 显示为独立「指令注入」行，标题取自 `source.plugin` |
-| `skills.registerProvider` | `list({ cwd })` 收到真实 cwd；`get()` 返回正文与 `resourceBase`；`invocation` 策略与 frontmatter 一致 |
-| `fs/observed` | `actor` 是 `ToolExecution`，携带 `.agent`（`id` 与 `session.header.cwd`），可按会话分桶 |
-
-另记两条否证，它们塑造了当前形态：
-
-- `ctx.systemPrompt.context` 的正文会被折叠进「状态快照」条目 —— 内容送达没问题，
-  但用户按标题扫过去会认为"没有注入"。
-- `dsh-tool-cordis` 的进程级 Inspect provider 排除了 preset 平面（§2.1）。
-
-### 5.2 端到端
-
-在一个真实工作区验证了 5 份指令文件的注入、`applyTo` 的负例（未命中不注入）、
-正文改动下一步生效、`Instructions removed:`、技能进目录、以及 `/name` 调用。
-
-### 5.3 离线
-
-`npm run check`：9 个文件的 `node --check` + 124 项 `node:test`。
-`test/index.test.js` 对着假 Cordis 上下文驱动真实插件对象，覆盖注入顺序、跨会话隔离、
-预算边界、`applyTo` 正反例、移除通知、`paths`、默认的 `~/.copilot` 条目（含关掉它），
-以及**设置服务 → 发现流程**这条端到端链路
-（含 schema 装载失败时回落到组合配置）；`test/discover.test.js` 另外钉住配置目录语义的负例
-（条目内部的 `.github` 树一律不读、它的子目录不是配置目录、AGENTS.md 从不被读、两个单位落到
-同一个源文件时只出现一次、退化目录取值与 Windows 写法都不越界），以及 `~` 的落点与
-「只有开头的 `~` 才算主目录」；用例通过 `apply` 的 `options.homeDir` / `discover` 的 `homeDir`
-把 home 指到一个临时目录（`mount` 默认指到不存在的目录），所以断言不依赖跑测试的机器；
-`test/settings.test.js` 用注入的 schema loader 钉住
-命名空间接线（含 loader 失败与 dispose 的降级路径）与默认值；`test/client.test.js` 按客户端模块系统的
-方式**跑真实 bundle**（假 `__ModuleLoader__` + React 替身），覆盖卡片注册与标题、折叠/展开、
-暂存/保存（含 revision 与回读确认）、只读态、恢复默认、两条目录选择路由与选择失败时的提示、
-样式安装/卸载。
-
-### 5.4 设置与卡片的依据（2026-09-21，Desktop 2.0.11 / dsh 0.1.5-rc.2）
-
-本节的结论来自**读实现**（`resources/app/node_modules/@deepseek-ai/*` 的 `lib/*.js` 与
-README）加上一段**可重跑的脚本**，不是运行中的 GUI 实测 —— 卡片要在 DSH 重启并重装插件后
-才会出现，本轮没有做那一步。未实测的部分在 CONTRIBUTING §4.3 列出。
-
-`npm run verify:settings`（`scripts/verify-settings-schema.mjs`）拿真实的 schemastery 把
-schema 这条链跑通 9/9：解析组合配置与用户层、拒绝非法写入、`toJSON()` 信封、**从信封重建并
-校验**（浏览器渲染卡片走的就是这一步），以及两半的 namespace 是同一个字符串。
-
-| 契约 | 依据 |
-| --- | --- |
-| 设置服务在 Desktop 里存在且可写 | 组合层挂载 `@deepseek-ai/dsh-settings-file`（`dsh-base/cordis.patch.yml`），默认落点 `$DSH_HOME/settings.yaml` 已存在且有 6 个 namespace 小节；provider `writable` 为 true |
-| `installSection(owner, ns, schema, entry, hooks)` | `dsh-settings/lib/index.js`；`setSource` 先给 `() => scope.get()`，服务消失时给 `() => entry` |
-| namespace 文法 | `/^[a-z][a-z0-9-]*$/`，`import-vscode-ai-files` 合法（`verify:settings` 复核） |
-| schema 必须是真 schemastery | 浏览器用 `new Schema(serialized)` 重建 `{ uid, refs }` 信封（`dsh-client-ui-settings/lib/client.js`）；重建失败则该 namespace 没有可编辑值。`verify:settings` 用真实 schemastery 走通重建 |
-| 卡片按 namespace 派发 | `settings.plugin.item` 由「插件配置」标签页按 `entryKey = ns` 派发（`dsh-client-ui-settings-plugins/lib/client.js`） |
-| bundle 格式与发现 | `dsh.client`（`platform: 'web'`）+ `exports['./client']`；宿主扫描**已启用的 Loader 条目**，缺失 bundle 会大声失败（`dsh-client-modules`） |
-| 客户端 scope API | `bind({namespace})` → `getSnapshot/subscribe/set/unset/mutate(ops, expectedRevision)`（`dsh-client-ui-settings/lib/client.js`） |
-| 目录选择器的两条路由 | win32 的 DSH Desktop profile 禁用 `dsh-host-directory-picker-auto`、改挂 `browse` 后端（`resources/app/lib/profile-*.js`）；`browse` 没有 `pick`，Remote 控制器按 `requireCapability('native','pick')` 答 `directory-picker/unavailable`（`dsh-api-workspace-controller/lib/types/directory-picker.js`）；`window.__DSH_DESKTOP_PICK_DIRECTORY__` 只在 win32 页面安装（`resources/app/lib/client.js`） |
-| 手写 bundle 可行 | 第三方插件 `dsh-git-rollback` 的 `lib/client.js` 就是同一格式，且已在用 |
-
-## 6. 已知边界与后续
+## 5. 已知边界与后续
 
 - **不监视文件**：没有 watcher。`.github` 的增删改在"下一个模型步骤"生效（因为每步重读），
-  但**技能目录**还需要一次失效信号；当前由 `fs/observed` 提供。设置卡片改的 `paths` 同理：
-  保存后从下一个步骤起生效，不需要任何失效逻辑。
+  但**技能目录**还需要一次失效信号：`.github` 树与 `paths` 条目下的文件观察由 `fs/observed`
+  提供，设置卡片提交的 `paths` 不碰文件系统、拿不到这个信号，所以卡片的提交回调显式调用
+  `control.invalidate()`（见 §3.8 末段）。
 - **只写一处**：插件不写工作区任何文件。唯一的写路径是设置卡片提交的 `paths`，它由宿主
   设置服务落进 DSH 自己的用户设置文档。
 - **卡片只覆盖 `paths`**：`maxBytes`、`scanSubdirectories`、`instructionDirs`、`skillDirs`
@@ -318,7 +264,8 @@ schema 这条链跑通 9/9：解析组合配置与用户层、拒绝非法写入
 - **`paths` 是配置目录，不是项目根**：一个条目恰好是一个配置目录（等价于项目根的 `.github`），
   `scanSubdirectories` 不作用于它，它内部的 `.github` 树不被**条目自身的走查**读取（若它同时
   也在 cwd 走查范围内，那棵树仍可能以项目根 `.github` 的身份被读到），它下面的子目录也不会被
-  当作更多的配置目录。该字段尚未随任何版本发布（见 CHANGELOG），所以没有需要迁移的旧配置；
+  当作更多的配置目录。该字段尚未随任何版本发布（见 CHANGELOG），所以没有已发布的旧配置需要
+  迁移 —— git 安装路径上用户层写下的旧命名空间小节见 CHANGELOG 的改名一条；
   把工作区外的仓库根改写成 `paths: [<repo>/.github]` 会同时把 `applyTo` 锚点从仓库根移到
   `.github`。
 - **不处理 `AGENTS.md`**：它属于核心的 `dsh-agent-instructions`（project root → cwd 祖先链），
@@ -329,3 +276,5 @@ schema 这条链跑通 9/9：解析组合配置与用户层、拒绝非法写入
 - **子 agent 也会注入**：host 平面注册是全局的，所以子 agent 的组装同样带这些指令。
 - **恢复会话时可能重复注入一次**：`injectedText` 是内存态，进程重启后第一次组装会重新注入。
   无害，但会多一条消息。
+
+验证记录见 [compatibility.md](./compatibility.md)。

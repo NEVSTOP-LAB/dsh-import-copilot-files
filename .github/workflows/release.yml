@@ -50,6 +50,6 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }} dsh-import-vscode-ai-files
+          name: ${{ github.ref_name }} dsh-import-copilot-files
           body_path: release-notes.md
           files: dist/*.tgz
