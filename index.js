@@ -34,7 +34,7 @@
  * harness's own `node_modules`, so the four-field shape is reproduced literally.
  * That shape, the pre-step decision contract, and the settings namespace being
  * the browser card's slot key are the three internal things this plugin depends
- * on — doc/design.md §3.2 and §3.8 cover them, and CONTRIBUTING §4 is the
+ * on — docs/design.md §3.2 and §3.8 cover them, and docs/compatibility.md is the
  * upgrade checklist.
  */
 
@@ -46,16 +46,16 @@ import { discover, isPortableAbsolute, resolveConfiguredPath } from './lib/disco
 import { matchesAny } from './lib/glob.js'
 import { parseFrontmatter } from './lib/frontmatter.js'
 
-export const PLUGIN_NAME = 'import-vscode-ai-files'
+export const PLUGIN_NAME = 'import-copilot-files'
 
-const PROVIDER_NAME = 'import-vscode-ai-files'
+const PROVIDER_NAME = 'import-copilot-files'
 /**
  * The runtime settings namespace. It is also the key the browser half registers
  * its card under in `settings.plugin.item`, so the two must stay identical.
  */
-export const SETTINGS_NAMESPACE = 'import-vscode-ai-files'
+export const SETTINGS_NAMESPACE = 'import-copilot-files'
 /** A provider label; not one of the built-in project roots. */
-const SKILL_SOURCE = 'project-vscode'
+const SKILL_SOURCE = 'project-copilot'
 /** Between the built-in `project-dsh` (100) and `project-agents` (200) roots. */
 const SKILL_RANK = 150
 

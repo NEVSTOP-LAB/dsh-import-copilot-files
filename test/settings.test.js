@@ -78,8 +78,8 @@ function fakeCtx({ withInject = true } = {}) {
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 
 test('the namespace is the name the browser card is keyed by', () => {
-  assert.equal(SETTINGS_NAMESPACE, 'import-vscode-ai-files')
-  assert.equal(plugin.name, 'import-vscode-ai-files')
+  assert.equal(SETTINGS_NAMESPACE, 'import-copilot-files')
+  assert.equal(plugin.name, 'import-copilot-files')
 })
 
 test('the plugin keeps its static service list to the one it cannot work without', () => {

@@ -97,14 +97,14 @@ const body = [
   "",
   "```sh",
   "# 从 tarball（本 Release 附件）",
-  `dsh plugin --profile web add ./dsh-import-vscode-ai-files-${version}.tgz`,
+  `dsh plugin --profile web add ./dsh-import-copilot-files-${version}.tgz`,
   "",
   "# 或从仓库安装（锁定提交以固定内容）",
-  `dsh plugin --profile web add github:NEVSTOP-LAB/dsh-import-vscode-ai-files${pinned}`,
+  `dsh plugin --profile web add github:NEVSTOP-LAB/dsh-import-copilot-files${pinned}`,
   "```",
   "",
   "`--profile web` 是默认 profile；桌面版用 `--profile desktop`。",
-  "详见 [README](https://github.com/NEVSTOP-LAB/dsh-import-vscode-ai-files#readme)。",
+  "详见 [README](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files#readme)。",
   ""
 ].join("\n");
 

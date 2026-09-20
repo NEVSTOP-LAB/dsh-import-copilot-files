@@ -142,7 +142,7 @@ function mount(cwd = WORKSPACE, config = {}, options = {}) {
 
 test('the plugin declares only the services it consumes', () => {
   assert.deepEqual(plugin.inject, ['skills'])
-  assert.equal(plugin.name, 'import-vscode-ai-files')
+  assert.equal(plugin.name, 'import-copilot-files')
 })
 
 test('the injection is a user message the client labels as an instruction form', async () => {
@@ -153,7 +153,7 @@ test('the injection is a user message the client labels as an instruction form',
   assert.equal(typeof message.id, 'string')
   assert.equal(message.content[0].type, 'text')
   assert.equal(message.source.kind, 'plugin')
-  assert.equal(message.source.plugin, 'import-vscode-ai-files')
+  assert.equal(message.source.plugin, 'import-copilot-files')
   assert.equal(message.source.form, 'instructions')
   assert.ok(Object.isFrozen(message), 'the message must be frozen like a created message')
 })
@@ -183,7 +183,7 @@ test('AGENTS.md is injected first and the .github rules follow it', async () => 
   const decision = await session.inject(session.agent, claimed, [agentsMd])
   assert.deepEqual(
     decision.messages.map((message) => message.source?.plugin ?? message.id),
-    ['user-1', 'agents-md', 'import-vscode-ai-files'],
+    ['user-1', 'agents-md', 'import-copilot-files'],
   )
 })
 
@@ -290,8 +290,8 @@ test('the provider lists every discovered skill for the given cwd', async () => 
 test('a candidate carries the locator, rank and resource base the registry needs', async () => {
   const candidates = await mount().list({ cwd: WORKSPACE })
   const candidate = candidates.find((skill) => skill.name === 'demo-skill')
-  assert.equal(candidate.provider, 'import-vscode-ai-files')
-  assert.equal(candidate.source, 'project-vscode')
+  assert.equal(candidate.provider, 'import-copilot-files')
+  assert.equal(candidate.source, 'project-copilot')
   assert.equal(candidate.rank, 150)
   assert.deepEqual(candidate.resourceBase, {
     kind: 'directory',
@@ -518,7 +518,7 @@ test('the settings section drives discovery, not just the composition config', a
   await flush()
   assert.equal(session.settingsInstalls.length, 1)
   const installed = session.settingsInstalls[0]
-  assert.equal(installed.ns, 'import-vscode-ai-files')
+  assert.equal(installed.ns, 'import-copilot-files')
   assert.equal(installed.schema, 'SCHEMA')
   assert.deepEqual(installed.entry, {}, 'the composition config is the base layer')
 

@@ -1,11 +1,11 @@
-# dsh-import-vscode-ai-files bundle patch
+# dsh-import-copilot-files bundle patch
 #
 # This file is the `dsh.bundle.patch` layer of the package: when the plugin is
 # installed through the official DSH CLI —
 #
-#   dsh plugin --profile <name> add dsh-import-vscode-ai-files
+#   dsh plugin --profile <name> add dsh-import-copilot-files
 #   # or from a git repo:
-#   dsh plugin --profile <name> add github:NEVSTOP-LAB/dsh-import-vscode-ai-files
+#   dsh plugin --profile <name> add github:NEVSTOP-LAB/dsh-import-copilot-files
 #
 # — the CLI appends this bundle to the profile stack and this patch inserts
 # the plugin row. The row's module name is the package name, resolved through
@@ -16,13 +16,13 @@
 # makes its contributions global, i.e. visible to every session and preset.
 #
 # This row's `config` is also the base layer of the plugin's settings namespace
-# (`import-vscode-ai-files`), which the same plugin serves to the GUI's
+# (`import-copilot-files`), which the same plugin serves to the GUI's
 # Settings → Plugins → plugin-configuration tab. Editing `paths` there takes
 # effect without a restart; leaving it here is what a deployment without that
 # card, or a pinned one, runs on.
 - insert:
-    - id: dsh-import-vscode-ai-files
-      name: 'dsh-import-vscode-ai-files'
+    - id: dsh-import-copilot-files
+      name: 'dsh-import-copilot-files'
       config:
         # Rendered-instructions budget, in bytes, per injection.
         maxBytes: 65536

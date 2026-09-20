@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const SOURCE = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
-const NAMESPACE = 'import-vscode-ai-files'
+const NAMESPACE = 'import-copilot-files'
 const HEADER = 'dsh-ivaf-header'
 const BROWSE = 'dsh-ivaf-action'
 
@@ -183,7 +183,7 @@ function mountCard(scope, picker, React) {
 
 test('the bundle registers the package id the shell looks up', () => {
   const { registration } = loadBundle({})
-  assert.equal(registration.id, 'dsh-import-vscode-ai-files')
+  assert.equal(registration.id, 'dsh-import-copilot-files')
   assert.equal(typeof registration.factory, 'function')
 })
 
@@ -197,8 +197,8 @@ test('the card is registered under the settings namespace the host serves', () =
   assert.deepEqual(dictionaries.map((entry) => entry.ns), [NAMESPACE])
   // The card's title is what the settings page shows for this plugin, so it is
   // pinned here rather than merely checked for being non-empty.
-  assert.equal(dictionaries[0].dicts.zh.title, '导入 VSCode AI 文件')
-  assert.equal(dictionaries[0].dicts.en.title, 'Import VSCode AI Files')
+  assert.equal(dictionaries[0].dicts.zh.title, '导入 Copilot 文件')
+  assert.equal(dictionaries[0].dicts.en.title, 'Import Copilot Files')
   // A configured row is a configuration directory, not a project root.
   assert.doesNotMatch(dictionaries[0].dicts.zh.intro, /项目根/)
   assert.doesNotMatch(dictionaries[0].dicts.en.intro, /project root/i)
@@ -522,7 +522,7 @@ test('the card stylesheet is installed once and removed on teardown', () => {
     const { module } = loadBundle({})
     module.apply(ctx)
     assert.equal(appended.filter((entry) => entry !== 'removed').length, 1)
-    assert.equal(appended[0].dataset.plugin, 'dsh-import-vscode-ai-files')
+    assert.equal(appended[0].dataset.plugin, 'dsh-import-copilot-files')
     for (const effect of effects) effect.dispose()
     assert.deepEqual(appended.filter((entry) => entry === 'removed').length, 1)
   } finally {
