@@ -4,7 +4,9 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 同一份 `.github` 配置在 VSCode 和 DSH 里同时生效，不用维护两套。
 
 也可以再指定若干**工作区之外**的配置目录（等价于项目根里的 `.github`，它下面不再有
-`.github` 目录），让它们一起生效——一份共享规则喂给所有仓库。
+`.github` 目录），让它们一起生效——一份共享规则喂给所有仓库。**默认就带一条**：当前用户的
+`[user]\.copilot`（写成 `~/.copilot`，`~` 即用户主目录），也就是 Copilot CLI 自己的家目录，
+那里放着 `copilot-instructions.md` 与 `skills/`。
 
 > [!NOTE]
 > 插件只**读取**工作区里的配置，不写任何工作区文件。它另外向 DSH 注册一个设置命名空间
@@ -48,12 +50,18 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 每个条目恰好是一个配置目录，**不再**适用 `scanSubdirectories`：它的子目录是内容
 （`instructions/`、`skills/`），不是更多的配置目录。
 
-路径可以是绝对路径，也可以是相对会话 cwd 的路径；不存在的路径贡献为空，不会报错。
+路径可以是绝对路径，也可以是相对会话 cwd 的路径，**或以 `~` 开头表示用户主目录**
+（`~\x` 在 Windows 上等价于 `~/x`）；只有开头的那个 `~` 有这层含义，`~name` 与 `a/~/b`
+都是普通相对路径，环境变量与通配符不展开。不存在的路径贡献为空，不会报错。
 已经被扫过的配置目录不会走第二遍（点名 cwd 下某个项目自己的 `.github` 等于没点）。
 `instructionDirs` / `skillDirs` 在 `paths` 条目上会**去掉前导的 `.github` 段**：默认值
 `.github/instructions` 因此读作 `<路径>/instructions`，不以 `.github` 开头的目录原样拼接。
 通过 `paths` 扫到的指令，标题用**绝对路径**（`..\..` 链说不清位置），`applyTo` 相对它自己的
 配置目录（即该路径本身）匹配。
+
+`paths` 的默认值是 `['~/.copilot']`——把**当前用户**的 Copilot 家目录当成一个配置目录，
+所以每个会话都自动带上那里的全局指令与技能。不想要它就在插件页里删掉那一行并保存
+（存成 `paths: []`），或直接改成一个别的目录。
 
 **AGENTS.md 不由本插件处理**：它属于 DSH 核心的 `dsh-agent-instructions`，按 project root →
 cwd 的祖先链读取，因此只在当前工作目录这条链上生效；`paths` 与子目录根都不会贡献 AGENTS.md。
@@ -62,7 +70,7 @@ cwd 的祖先链读取，因此只在当前工作目录这条链上生效；`pat
 
 | GUI 的注入面板 | 来源 |
 | --- | --- |
-| **指令注入 · `import-vscode-ai-files`** | 本插件注入的 VSCode 风格指令，来自工作区的 `.github/` 或 `paths` 里的配置目录（标题取自 `source.plugin`） |
+| **指令注入 · `import-vscode-ai-files`** | 本插件注入的 VSCode 风格指令，来自工作区的 `.github/` 或 `paths` 里的配置目录（含默认的 `~/.copilot`；标题取自 `source.plugin`） |
 | **技能目录** | 上述配置目录的 `skills/` 中 `disable-model-invocation` 不为 `true` 的技能 |
 
 顺序固定为 **AGENTS.md 在前，本插件注入的指令在后**。
@@ -80,7 +88,7 @@ cwd 的祖先链读取，因此只在当前工作目录这条链上生效；`pat
 | `scanSubdirectories` | `1` | cwd 下当作项目根的下探层数（只作用于 cwd 的走查） |
 | `instructionDirs` | `['.github/instructions']` | `*.instructions.md` 所在目录（相对配置目录；`paths` 条目会去掉前导 `.github`） |
 | `skillDirs` | `['.github/skills']` | `<name>/SKILL.md` 所在目录（同上） |
-| `paths` | `[]` | **工作区之外**的配置目录，等价于项目根的 `.github`（它下面不再有 `.github`） |
+| `paths` | `['~/.copilot']` | **工作区之外**的配置目录，等价于项目根的 `.github`（它下面不再有 `.github`）；条目以 `~` 开头表示用户主目录 |
 
 ### 在插件页里改路径
 
@@ -135,6 +143,26 @@ dsh plugin --profile desktop add ./dsh-import-vscode-ai-files-0.1.0.tgz
 ```sh
 dsh --profile desktop --dump-config
 ```
+
+### 安装时那条 peer 依赖警告
+
+`dsh plugin add` 会原样转发 pnpm 的输出，所以只要 profile 里**有任何一个**插件漏声明 peer
+依赖，装什么都可能看到：
+
+```
+[WARN] Issues with peer dependencies found. Run `pnpm peers check` to list them.
+```
+
+**它说的不是本插件**：本插件的宿主包全部声明为**可选** peer，既不会缺，也不会被 pnpm 报出来。
+想知道到底是谁缺什么，在 profile 目录里跑一次：
+
+```sh
+cd $DSH_HOME/profiles/<profile>
+pnpm peers check
+```
+
+它逐条列出「哪个包缺哪个 peer、要求什么范围」。缺的那几条属于那些包自己，装上对应版本或等它们
+补齐即可 —— 与本插件无关，也不影响本插件运行。
 
 > [!IMPORTANT]
 > DSH 的 profile patch 层**不热重载**，安装后要**重启 DSH**。

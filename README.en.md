@@ -6,7 +6,9 @@ no second copy to maintain.
 
 It can also load further **configuration directories** that live outside the workspace —
 directories equivalent to a project's `.github` folder, with no `.github` of their own — one
-shared set of rules feeding every repository.
+shared set of rules feeding every repository. **One is there by default**: the current user's
+`[user]\.copilot` (written `~/.copilot`, where `~` is the home directory), the Copilot CLI's own
+home, which holds `copilot-instructions.md` and `skills/`.
 
 > [!NOTE]
 > The plugin only **reads** your workspace configuration, and it writes no workspace file. It
@@ -56,13 +58,20 @@ rules outside every workspace" is a folder name in `paths`. Each entry is exactl
 directory, so `scanSubdirectories` does **not** apply to it: its subdirectories are content
 (`instructions/`, `skills/`), not further configuration directories.
 
-Paths may be absolute or relative to the session cwd, and a path that does not exist contributes
-nothing rather than failing. A configuration directory the scan already read is not read again
-(naming a project's own `.github` adds nothing). For a `paths` entry, `instructionDirs` /
-`skillDirs` lose a leading `.github` segment — the default `.github/instructions` therefore means
-`<path>/instructions`, while a directory that does not start with `.github` is joined as it is.
-Instructions reached through `paths` are labelled with their **absolute** path (`..\..` chains say
-less), and `applyTo` matches relative to that entry's own configuration directory.
+Paths may be absolute, relative to the session cwd, or **start with `~` for the home directory**
+(`~\x` reads the same as `~/x` on Windows). Only a *leading* `~` means that: `~name` and `a/~/b`
+are ordinary relative paths, and neither environment variables nor wildcards are expanded. A path
+that does not exist contributes nothing rather than failing. A configuration directory the scan
+already read is not read again (naming a project's own `.github` adds nothing). For a `paths`
+entry, `instructionDirs` / `skillDirs` lose a leading `.github` segment — the default
+`.github/instructions` therefore means `<path>/instructions`, while a directory that does not start
+with `.github` is joined as it is. Instructions reached through `paths` are labelled with their
+**absolute** path (`..\..` chains say less), and `applyTo` matches relative to that entry's own
+configuration directory.
+
+`paths` defaults to `['~/.copilot']` — the **current user's** Copilot home, treated as one
+configuration directory, so every session picks up the global instructions and skills kept there.
+To turn it off, remove that row in the Plugins page and save (`paths: []`), or point it elsewhere.
 
 **AGENTS.md is not this plugin's business**: it belongs to the DSH core
 (`dsh-agent-instructions`), which reads it along the project-root-to-cwd ancestor chain. It is
@@ -73,7 +82,7 @@ contributes one.
 
 | Injection panel | Source |
 | --- | --- |
-| **Instruction injection · `import-vscode-ai-files`** | the VSCode-style instructions this plugin injects, from the workspace's `.github/` or from a configured directory in `paths`, labelled from `source.plugin` |
+| **Instruction injection · `import-vscode-ai-files`** | the VSCode-style instructions this plugin injects, from the workspace's `.github/` or from a configured directory in `paths` (including the default `~/.copilot`), labelled from `source.plugin` |
 | **Skill catalog** | the `skills/` entries of those configuration directories whose `disable-model-invocation` is not `true` |
 
 The order is fixed: **AGENTS.md first, the instructions this plugin injects after it**.
@@ -91,7 +100,7 @@ The plugin row lives in [`cordis.patch.yml`](./cordis.patch.yml); its `config` f
 | `scanSubdirectories` | `1` | levels below the cwd treated as project roots (the cwd walk only) |
 | `instructionDirs` | `['.github/instructions']` | where `*.instructions.md` lives, relative to a configuration directory (a `paths` entry drops the leading `.github`) |
 | `skillDirs` | `['.github/skills']` | where `<name>/SKILL.md` lives (same rule) |
-| `paths` | `[]` | configuration directories **outside** the workspace, equivalent to a project's `.github` (no `.github` under them) |
+| `paths` | `['~/.copilot']` | configuration directories **outside** the workspace, equivalent to a project's `.github` (no `.github` under them); a leading `~` is the home directory |
 
 ### Editing the paths in the Plugins page
 
@@ -150,6 +159,27 @@ Confirm the row reached the composition:
 ```sh
 dsh --profile desktop --dump-config
 ```
+
+### The peer-dependency warning during installation
+
+`dsh plugin add` passes pnpm's output through verbatim, so as long as **any** plugin in the profile
+under-declares its peer dependencies you may see:
+
+```
+[WARN] Issues with peer dependencies found. Run `pnpm peers check` to list them.
+```
+
+**It is not about this plugin.** Every host package this plugin uses is declared as an **optional**
+peer, so none of them can be missing and none is ever reported. To find out who is actually short:
+
+```sh
+cd $DSH_HOME/profiles/<profile>
+pnpm peers check
+```
+
+It lists, package by package, which peer is missing and what range was wanted. Those belong to
+those packages: install the matching versions or wait for them to catch up. It neither comes from
+this plugin nor affects it.
 
 > [!IMPORTANT]
 > DSH's profile patch layer is **not hot-reloaded** — restart DSH after installing.

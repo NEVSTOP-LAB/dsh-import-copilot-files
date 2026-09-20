@@ -132,10 +132,16 @@ npm test          # node --test test/
 
 ### 3.1 加载期零依赖
 
-`dependencies` 与 `peerDependencies` 都为空，加载期的 import 只有 `node:crypto`、`node:fs`、
-`node:path`。
+`dependencies` 为空，加载期的 import 只有 `node:crypto`、`node:fs`、`node:os`、`node:path`。
+`peerDependencies` 列出宿主契约 —— `@deepseek-ai/cordis`、`@deepseek-ai/dsh-settings`、
+`@deepseek-ai/schemastery`、`react` —— 并且**四个全部是 optional**（`peerDependenciesMeta`）：
+这个插件在 profile 里本来就能缺其中任何一个（缺 schemastery 或 settings 只丢那张卡片），
+而 optional 的 peer 不会进 pnpm 的 peer 问题清单，所以这条声明不制造新警告。声明的作用是让
+manifest 如实描述「跑起来需要什么」，也让 `resolveModuleFallbackEntries` 这类按
+`dependencies` + `peerDependencies` 走的解析器认得它。
 
-这不是洁癖：**不能假定 `@deepseek-ai/*` 一定解析得到**。插件的宿主半侧跑在 harness 进程里，
+`peerDependencies` 不是 `dependencies` 的替代品：它**不会被安装**，插件仍然不能假定
+`@deepseek-ai/*` 一定解析得到。插件的宿主半侧跑在 harness 进程里，
 但模块解析走的是 **profile 的 `node_modules`**，而那条路径是部署给的、不保证有什么 ——
 所以 `lib/frontmatter.js` 与 `lib/glob.js` 只能自己写。这条约束直接决定了 §3.2 的形态。
 
@@ -173,7 +179,8 @@ turn。第三处没有 try/catch 可包：key 与 namespace 不一致时卡片**
 
 ### 3.3 版本要求
 
-没有可声明的 npm 下界（加载期不 import 任何 DSH 包），兼容性由 §3.2 的清单决定。
+加载期不 import 任何 DSH 包，所以兼容性由 §3.2 的清单决定；`peerDependencies` 里的范围只是
+契约记录（全 optional，不会被安装，也不会拦安装）。
 **实测环境：DSH Desktop 2.0.11 / dsh `0.1.5-rc.2`**（与 `dsh-approval-mode` 相同）。
 
 ## 4. 兼容性校验怎么做
@@ -205,6 +212,7 @@ turn。第三处没有 try/catch 可包：key 与 namespace 不一致时卡片**
 | --- | --- | --- |
 | 2026-09-18 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 三个接缝与两处内部契约逐条实测通过；端到端验证见 CHANGELOG `0.1.0` 的「验证」小节 |
 | 2026-09-21 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 设置与卡片这条链**读实现**核对：`installSection` 签名与 hooks、namespace 文法、schema 必须可被浏览器重建、卡片按 namespace 派发、`dsh.client` 的解析与 bundle 缺失时的失败方式、客户端 scope 的 `bind`/`mutate` 形状；另确认本机挂载了 `dsh-settings-file` 且 `$DSH_HOME/settings.yaml` 可写 |
+| 2026-09-20 | Desktop 2.0.13 / dsh 0.1.5-rc.2 | 「安装时那条 peer 警告」定位：在 `~/.dsh/profiles/desktop` 上 `pnpm peers check --lockfile-only --json`，`missing` 全是 `@xxxyz/dsh-mcp-manager`、`dsh-approval-mode`、`dsh-context`、`dshmarket` 的缺项，本插件不在其中；补上四个 optional peer 后，在含本插件的 lockfile 上同一命令得到 `missing: {}`、退 0。默认 `~/.copilot` 条目只在**发现流程**上实测（本机解析到 `C:\Users\nevstop\.copilot`，读到 `copilot-instructions.md` 与四个技能、无告警） |
 
 ### 4.2 设置链：`npm run verify:settings`
 
@@ -236,6 +244,7 @@ node scripts/verify-settings-schema.mjs --schemastery <specifier-or-path>
       （如远程浏览器访问的 `browse` 组合）显示提示而不是无反应。
 - [ ] 保存后 `$DSH_HOME/settings.yaml` 里出现 `import-vscode-ai-files:` 小节，
       且下一个模型步骤开始生效。
+- [ ] 默认的 `~/.copilot` 条目在真实会话里注入（要重装插件 + 重启 DSH；本轮只在发现流程上验证）。
 - [ ] 「恢复默认」清掉用户覆盖、值回到组合配置（「放弃」只丢弃草稿）。
 - [ ] `ctx.settings.installSection` 在 provider 卸载/重挂时的行为（`register` 对重复
       namespace 会抛错，上游没有文档说明它是否在两者之间 dispose）。
@@ -243,6 +252,20 @@ node scripts/verify-settings-schema.mjs --schemastery <specifier-or-path>
 §2.3 的手工流程覆盖前五条；最后一条只有升级 DSH 或改动设置这条链时才需要重新确认。
 `npm run verify:settings`（§4.2）已经覆盖了「浏览器能不能重建 schema」这条 —— 它此前也在
 这份清单里，现在有命令可跑，就不再是「未实测」。
+
+### 4.4 「安装时的 peer 警告」怎么自查
+
+`dsh plugin add` 原样转发 pnpm 的输出，而 pnpm 的 peer 问题清单是**整个 profile** 的，
+不是某个包的，所以任何一个插件漏声明 peer 都会让所有安装都带上这条警告：
+
+```sh
+cd $DSH_HOME/profiles/<profile>
+pnpm peers check            # 加 --lockfile-only --json 只看 lockfile、机器可读
+```
+
+它按「缺的 peer → 谁缺的 → 要什么范围」逐条列出来。想确认**本插件**不贡献任何一条，
+就在一个只依赖本插件（`"dsh-import-vscode-ai-files": "file:<repo>"`）的临时工程里跑同一条命令，
+应为 `missing: {}` 且退 0 —— 它声明的四个 peer 全是 optional，optional 的缺项不进这份清单。
 
 ## 5. 打包与发版
 
@@ -281,6 +304,17 @@ tarball。
   只在 `rootDir`（`applyTo` 的锚点）上分叉，别让两边的 `.github` 语义漂移；另外两个单位可能
   解析到同一个源文件（`paths` 点名一个已在走查里的目录 + 自定义目录名），发现结果按绝对路径
   去重，别把同一个文件注入两次。
+- **`paths` 的默认条目是 `~/.copilot`**（`DEFAULT_PATHS`，`cordis.patch.yml` 与设置 schema 同源）。
+  它让每个会话默认带上用户级 Copilot 配置，也让**测试必须自带 home**：`apply` 的
+  `options.homeDir` 与 `discover` 的 `homeDir` 是同一个 seam，`test/index.test.js` 的 `mount`
+  默认指到一个**不存在**的目录，用例要测默认条目时才指到自己的临时 home。谁把 `discover()`
+  的 home 换回 `os.homedir()`，用例就会在「开发机上恰好有 `~/.copilot`」时红、在 CI 上绿。
+  显式 `paths: []` 是关闭它、不是缺省，`normalizeSettings` 认这个区别。
+- **配置路径只解析一次，且只在 `lib/discover.js`**：`resolveConfiguredPath(cwd, value, home)`
+  是唯一的入口（`~` 展开、cwd 相对、cwd 为 `null` 时拒绝相对条目都在它里面），
+  `index.js` 的 `touchesConfigDir` 复用它。别在别处再写一份 `resolve()`，
+  否则「发现读到的目录」与「改动会让技能目录失效的目录」会漂移。
+  只有**开头**的 `~` 是主目录（`~name`、`a/~/b` 是普通相对路径），通配符与环境变量不展开。
 - **`disable-model-invocation: true` 会让技能不进目录**。这是既定语义，不是插件 bug；
   想让模型看到就不要写这一行（或写 `false`）。
 - **卡片的 slot key 必须等于设置命名空间**。`settings.plugin.item` 是按 namespace 派发的：

@@ -9,6 +9,15 @@
 
 ### 新增
 
+- **默认载入当前用户的 `[user]\.copilot` 目录**（[#10](https://github.com/NEVSTOP-LAB/dsh-import-vscode-ai-files/issues/10)）：
+  `paths` 的默认值从 `[]` 改为 `['~/.copilot']` —— 那是 Copilot CLI 自己的家目录，里面就是
+  `copilot-instructions.md` 与 `skills/`，于是每个会话自动带上那份用户级全局指令与技能，不必再手工
+  配一次。它仍然只是一个普通的 `paths` 条目：插件页里看得见、删得掉（保存成 `paths: []` 即关闭）、
+  改得动。组合层（`cordis.patch.yml`）与设置 schema 的默认值同步改动。
+- **`paths` 条目支持 `~`**：以 `~` 开头（单独一个 `~`，或后跟 `/`、Windows 上 `\`）表示**用户主
+  目录**，`~/.copilot` 在任何机器、任何部署里都是同一段文字。只有开头那个 `~` 有这层含义
+  （`~name`、`a/~/b` 都是普通相对路径），环境变量与通配符依旧不展开。没有会话 cwd 时 `~` 条目
+  照样能定位，相对条目仍然跳过；发现与「目录失效判定」共用同一个解析函数，不会各写一份。
 - **工作区之外的配置目录**（[#2](https://github.com/NEVSTOP-LAB/dsh-import-vscode-ai-files/issues/2)、
   [#6](https://github.com/NEVSTOP-LAB/dsh-import-vscode-ai-files/issues/6)）：
   新增配置字段 `paths`。该字段尚未随任何版本发布，所以没有需要迁移的旧配置。
@@ -47,6 +56,15 @@
 
 ### 修复
 
+- **安装时那条 peer 依赖警告不是本插件造成的**（[#8](https://github.com/NEVSTOP-LAB/dsh-import-vscode-ai-files/issues/8)）：
+  `dsh plugin add` 原样转发 pnpm 的输出，而 profile 里 `@xxxyz/dsh-mcp-manager`、`dsh-approval-mode`、
+  `dsh-context`、`dshmarket` 都漏声明了 peer，于是装什么都会看到
+  `Issues with peer dependencies found`。本插件补上宿主契约（`@deepseek-ai/cordis`、
+  `@deepseek-ai/dsh-settings`、`@deepseek-ai/schemastery`、`react`）并**全部标为可选**
+  （`peerDependenciesMeta.optional`），所以它既不缺 peer、也不会被报出来；README 里写明怎么用
+  `pnpm peers check` 找出真正的来源。自检证据：在本插件的 lockfile 上跑
+  `pnpm peers check --lockfile-only --json` 得到 `missing: {}` 且退 0，而同一个 profile 上跑它列出的
+  缺项全是上面那几个包。
 - **配置目录里的改动会立即让技能目录失效**：失效触发原先只认路径里的 `/.github/`，而 `paths`
   条目自身没有这一段，于是改 `<路径>/skills/**/SKILL.md` 不会刷新技能目录（要等下一次无关的
   文件观察）。现在命中 `.github` 树、或落在任一 `paths` 条目之下（按会话 cwd 解析、比较时按
@@ -60,6 +78,10 @@
 
 ### 设计取舍
 
+- **`peerDependencies` 不再为空**：宿主契约（cordis、`dsh-settings`、`schemastery`、`react`）如实
+  声明，但**四个全是可选** —— 这个插件在 profile 里本来就能缺任何一个（缺 `schemastery` 只丢那张
+  卡片，缺 `settings` 服务只丢卡片、其余照跑），而 optional 的 peer 不会进 pnpm 的 peer 问题清单，
+  所以声明它不会给别人的安装添警告。加载期依赖依旧是零：`node:` 内置模块 + 一处惰性动态 import。
 - **schema 必须是真 schemastery，且惰性加载**：浏览器要靠 `schema.toJSON()` 的
   `{ uid, refs }` 信封重建 schema 才能渲染表单，手写的「形状像」的对象会让卡片静默地拿不到
   值。为保住「clone 下来零依赖即可 `npm run check`」这条性质，`@deepseek-ai/schemastery`
@@ -76,13 +98,20 @@
 
 ### 验证
 
-- `npm run check`：9 个文件的 `node --check` + 114 项 `node:test` 全绿
-  （glob 9 / frontmatter 9 / discover 31 / 插件 39 / 设置 8 / 客户端 bundle 18）。
-  插件那 39 项里包含一条**端到端**：设置服务给出的 `paths` 真的进了发现流程（注入与技能目录），
+- `npm run check`：9 个文件的 `node --check` + 124 项 `node:test` 全绿
+  （glob 9 / frontmatter 9 / discover 36 / 插件 43 / 设置 9 / 客户端 bundle 18）。
+  插件那 43 项里包含一条**端到端**：设置服务给出的 `paths` 真的进了发现流程（注入与技能目录），
   以及 schema 装载失败时组合配置继续生效。客户端那 18 项跑的是**真实的 `lib/client.js`**：
   按客户端模块系统的方式执行 bundle，再驱动 `apply(ctx)` 与卡片组件，覆盖注册 key、折叠/展开、
   暂存、保存（revision + 回读确认）、恢复默认（`unset`）、只读态、两条目录选择路由、
-  选择被拒时的提示与取消时不动草稿、样式安装/卸载，以及卡片标题就是「导入 VSCode AI 文件」。
+  选择被拒时的提示与取消时不动草稿、样式安装/卸载、卡片标题就是「导入 VSCode AI 文件」，
+  以及卡片提示里写了 `~` 的用法。
+- **`~` 与默认条目的测试是自洽的**：`apply` 的 `options.homeDir` 与 `discover` 的 `homeDir` 让用例
+  把 home 指到一个临时目录（`test/index.test.js` 的 `mount` 默认指到一个**不存在**的目录），所以
+  断言不依赖跑测试的那台机器真的有没有 `~/.copilot`。新增的十条覆盖：`~` 与 `~/x` 落点、
+  裸 `~`、`~name` 与 `a/~/b` 不展开、Windows 上 `~\x` 与 `~/x` 等价、不给 `homeDir` 时用
+  `os.homedir()`、`~` 条目在没有会话 cwd 时仍可定位（相对条目仍被拒），以及默认条目真的进了注入与
+  技能目录、显式 `paths: []` 关得掉它、`~/.copilot` 下的改动会让技能目录失效。
 - **配置目录语义的负例**都在 `test/discover.test.js` 里：配置目录内部的 `.github` 树
   （copilot / instructions / skills 三样）一律不被采纳 —— 包括 `instructionDirs` 取
   `'.'`、`'.github'`、`'./.github'`、`'x/.github/y'`、`''`、`'/'` 这些退化写法；它的子目录不被
@@ -95,7 +124,8 @@
 - `npm run verify:settings`：拿真实 `@deepseek-ai/schemastery`（本机 Desktop 2.0.11）
   把设置链走一遍 9/9 —— 解析组合配置与用户层、拒绝非法写入、`toJSON()` 信封、
   **从信封重建并校验**（浏览器渲染卡片走的就是这一步），以及两半的 namespace 是同一个字符串。
-  该命令在没有安装 DSH 的环境下跳过并退 0，所以不进 `npm run check`。
+  该命令在没有安装 DSH 的环境下跳过并退 0，所以不进 `npm run check`；它现在从 `index.js` 导入
+  `SETTINGS_DEFAULTS`，默认值不再有两份。
 - 设置这条链（`installSection` 签名与 hooks、namespace 文法、卡片按 namespace 派发、
   `dsh.client` 的解析规则与 bundle 缺失时的失败方式、scope 的 `bind`/`mutate` 形状）
   **读实现**逐条核对；本机已挂载 `dsh-settings-file`、`$DSH_HOME/settings.yaml` 可写。
@@ -104,7 +134,9 @@
   按 `requireCapability('native', 'pick')` 答 `directory-picker/unavailable`；
   `window.__DSH_DESKTOP_PICK_DIRECTORY__` 只在 win32 页面上安装。
 - **还没实测**：卡片在真实 GUI 里出现、保存落盘与生效、「恢复默认」回到组合配置、
-  以及修好后的「浏览…」在 DSH Desktop 窗口里真的弹出选择框。
+  以及修好后的「浏览…」在 DSH Desktop 窗口里真的弹出选择框；新的默认条目在真实会话里的注入也要
+  重装插件并重启 DSH 之后才看得见（本轮只验证到发现流程：默认值在本机解析成
+  `C:\Users\nevstop\.copilot`，读到那份 `copilot-instructions.md` 与四个技能，无告警）。
   清单与手工步骤见 [CONTRIBUTING §2.3 / §4.3](./CONTRIBUTING.md)。
 
 ## [0.1.0] - 2026-09-18
