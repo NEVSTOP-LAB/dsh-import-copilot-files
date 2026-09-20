@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { basename, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { discover } from '../lib/discover.js'
+import { discover, resolveConfiguredPath } from '../lib/discover.js'
 
 const WORKSPACE = fileURLToPath(new URL('./fixtures/workspace', import.meta.url))
 const SHARED = fileURLToPath(new URL('./fixtures/shared', import.meta.url))
@@ -13,6 +13,16 @@ const discovered = () => discover({ cwd: WORKSPACE, scanSubdirectories: 1 })
 
 /** Forward-slashed, the way a display path is labelled. */
 const slash = (value) => value.split('\\').join('/')
+
+/** A throwaway home directory holding the one configuration directory the tests name. */
+function withHome(run) {
+  const home = mkdtempSync(join(tmpdir(), 'vscode-ai-config-home-'))
+  try {
+    return run(home)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+}
 
 test('roots are the working directory plus one level of subdirectories', () => {
   const { roots } = discovered()
@@ -241,6 +251,72 @@ test('a configured path deeper than the cwd budget is still scanned', () => {
 test('paths that are not usable strings are ignored', () => {
   const { pathDirs } = discover({ cwd: WORKSPACE, scanSubdirectories: 0, paths: ['', '   ', 42, null] })
   assert.deepEqual(pathDirs, [])
+})
+
+test('a leading ~ in a configured path is the user s home directory', () => {
+  withHome((home) => {
+    mkdirSync(join(home, '.copilot', 'skills', 'home-skill'), { recursive: true })
+    writeFileSync(join(home, '.copilot', 'copilot-instructions.md'), 'HOME-RULE')
+    writeFileSync(
+      join(home, '.copilot', 'skills', 'home-skill', 'SKILL.md'),
+      '---\nname: home-skill\ndescription: home\n---\nbody',
+    )
+
+    const { pathDirs, instructions, skills } = discover({
+      cwd: WORKSPACE,
+      scanSubdirectories: 0,
+      paths: ['~/.copilot'],
+      homeDir: home,
+    })
+    assert.deepEqual(pathDirs, [join(home, '.copilot')])
+    assert.ok(instructions.some((entry) => entry.content.includes('HOME-RULE')))
+    assert.ok(skills.some((skill) => skill.name === 'home-skill'))
+    // It is outside the working directory, so it is labelled with its own path.
+    const copilot = instructions.find((entry) => entry.content.includes('HOME-RULE'))
+    assert.equal(copilot.displayPath, `${slash(join(home, '.copilot'))}/copilot-instructions.md`)
+    assert.equal(copilot.rootDir, join(home, '.copilot'))
+  })
+})
+
+test('a bare ~ is the home directory, and ~name is an ordinary relative path', () => {
+  withHome((home) => {
+    const resolveWith = (value) =>
+      discover({ cwd: WORKSPACE, scanSubdirectories: 0, paths: [value], homeDir: home }).pathDirs
+
+    assert.deepEqual(resolveWith('~'), [home])
+    // `~name` is not another user's home on this platform, so it stays relative.
+    assert.deepEqual(resolveWith('~home/x'), [join(WORKSPACE, '~home', 'x')])
+    // Only a LEADING `~` means the home directory.
+    assert.deepEqual(resolveWith('sub/~/x'), [join(WORKSPACE, 'sub', '~', 'x')])
+    assert.deepEqual(resolveWith('D:\\shared'), ['D:\\shared'])
+  })
+})
+
+test('a Windows-spelled home path resolves like its forward-slash twin', { skip: process.platform !== 'win32' }, () => {
+  withHome((home) => {
+    const resolveWith = (value) =>
+      discover({ cwd: WORKSPACE, scanSubdirectories: 0, paths: [value], homeDir: home }).pathDirs
+    assert.deepEqual(resolveWith('~\\.copilot'), [join(home, '.copilot')])
+    assert.deepEqual(resolveWith('~\\.copilot'), resolveWith('~/.copilot'))
+  })
+})
+
+test('without an explicit home, ~ is the platform home directory', () => {
+  const { pathDirs } = discover({ cwd: WORKSPACE, scanSubdirectories: 0, paths: ['~/.copilot'] })
+  assert.deepEqual(pathDirs, [join(homedir(), '.copilot')])
+})
+
+test('a home-relative entry is placed without a session cwd, a relative one is not', () => {
+  // A session's first observation can arrive before its cwd does. `~` carries
+  // its own anchor, so it still resolves; a relative entry cannot be placed then
+  // and must be refused rather than guessed at against the process cwd.
+  const home = resolve(tmpdir(), 'vscode-ai-config-home')
+  assert.equal(resolveConfiguredPath(null, '~/.copilot', home), join(home, '.copilot'))
+  assert.equal(resolveConfiguredPath(null, join(home, 'shared'), home), join(home, 'shared'))
+  assert.equal(resolveConfiguredPath(null, 'relative-dir', home), null)
+
+  const cwd = join(home, 'workspace')
+  assert.equal(resolveConfiguredPath(cwd, 'relative-dir', home), join(cwd, 'relative-dir'))
 })
 
 test('paths is optional and may be omitted entirely', () => {

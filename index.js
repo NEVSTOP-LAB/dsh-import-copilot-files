@@ -40,8 +40,9 @@
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
-import { discover } from './lib/discover.js'
+import { discover, isPortableAbsolute, resolveConfiguredPath } from './lib/discover.js'
 import { matchesAny } from './lib/glob.js'
 import { parseFrontmatter } from './lib/frontmatter.js'
 
@@ -62,6 +63,13 @@ const DEFAULT_MAX_BYTES = 65536
 const DEFAULT_SCAN_SUBDIRECTORIES = 1
 const DEFAULT_INSTRUCTION_DIRS = ['.github/instructions']
 const DEFAULT_SKILL_DIRS = ['.github/skills']
+/**
+ * The configured paths this plugin starts from: the per-user Copilot home,
+ * `[user]\.copilot`, which holds the same layout as a project's `.github`. A
+ * leading `~` is the user's home directory, so the entry is the same text on
+ * every machine and every deployment.
+ */
+const DEFAULT_PATHS = ['~/.copilot']
 const TOUCHED_LIMIT = 2048
 const SESSION_LIMIT = 64
 const MIN_TRUNCATED_BLOCK = 128
@@ -89,6 +97,7 @@ export default {
    * @param config.paths - configured paths that ARE the `.github`-equivalent directory.
    * @param options - internal seam; production callers pass nothing.
    * @param options.loadSchema - replaces the lazy `@deepseek-ai/schemastery` load.
+   * @param options.homeDir - replaces `os.homedir()` as what `~` resolves to.
    */
   apply(ctx, config, options) {
     // The composition entry is both the settings namespace's `base` layer and
@@ -96,6 +105,9 @@ export default {
     // is held as a thunk: `setSource` swaps the thunk, never a snapshot.
     let readSettings = () => config
     const settings = () => normalizeSettings(readSettings())
+    // Resolved once: `~` in `paths` means the same directory for the life of the
+    // row, in discovery and in the invalidation check that must agree with it.
+    const home = options?.homeDir ?? homedir()
 
     /**
      * Per-session state, keyed by session id:
@@ -140,7 +152,7 @@ export default {
 
         const session = sessionFor(String(payload.agent.id), payload.agent.session?.header?.cwd)
         const current = settings()
-        const rendered = renderInstructions(session, current)
+        const rendered = renderInstructions(session, current, home)
         const text = withRemovals(rendered, session, current.maxBytes)
         if (text === null) return decision
 
@@ -172,7 +184,7 @@ export default {
         async list(options) {
           const cwd = nonEmptyString(options?.cwd)
           if (cwd === null) return []
-          const found = discover({ cwd, ...settings() })
+          const found = discover({ cwd, homeDir: home, ...settings() })
           reportWarnings(found.warnings, loggedWarnings)
           return found.skills.map(toCandidate)
         },
@@ -219,7 +231,7 @@ export default {
       // directory has: a configured path IS such a directory, so a skill edited
       // under it carries no `.github` at all and would otherwise never refresh
       // the catalog.
-      if (touchesConfigDir(absolute, settings(), session.cwd)) invalidateCatalog?.()
+      if (touchesConfigDir(absolute, settings(), session.cwd, home)) invalidateCatalog?.()
     })
   },
 }
@@ -299,12 +311,12 @@ export function attachSettings(
 }
 
 /** The defaults the composition entry and the schema both start from. */
-const SETTINGS_DEFAULTS = {
+export const SETTINGS_DEFAULTS = {
   maxBytes: DEFAULT_MAX_BYTES,
   scanSubdirectories: DEFAULT_SCAN_SUBDIRECTORIES,
   instructionDirs: DEFAULT_INSTRUCTION_DIRS,
   skillDirs: DEFAULT_SKILL_DIRS,
-  paths: [],
+  paths: DEFAULT_PATHS,
 }
 
 /** The one place a DSH package is imported, and only when settings exist. */
@@ -321,7 +333,7 @@ export function normalizeSettings(config) {
     scanSubdirectories: nonNegative(config?.scanSubdirectories, DEFAULT_SCAN_SUBDIRECTORIES),
     instructionDirs: stringList(config?.instructionDirs, DEFAULT_INSTRUCTION_DIRS),
     skillDirs: stringList(config?.skillDirs, DEFAULT_SKILL_DIRS),
-    paths: stringList(config?.paths),
+    paths: stringList(config?.paths, DEFAULT_PATHS),
   }
 }
 
@@ -345,11 +357,11 @@ function withRemovals(rendered, session, maxBytes) {
   return truncateUtf8(parts.join('\n\n'), maxBytes)
 }
 
-function renderInstructions(session, settings) {
+function renderInstructions(session, settings, home) {
   if (session.cwd === null) return { text: '', paths: new Set() }
   let found
   try {
-    found = discover({ cwd: session.cwd, ...settings })
+    found = discover({ cwd: session.cwd, homeDir: home, ...settings })
   } catch (error) {
     console.error(`[${PROVIDER_NAME}] discovery failed:`, error)
     return { text: '', paths: new Set() }
@@ -420,10 +432,6 @@ function sanitize(content) {
   return content.replaceAll('</system-reminder>', '<\\/system-reminder>')
 }
 
-function isPortableAbsolute(value) {
-  return isAbsolute(value) || /^(?:[A-Za-z]:[\\/]|\\\\)/.test(value)
-}
-
 function utf8ByteLength(value) {
   return Buffer.byteLength(value, 'utf8')
 }
@@ -492,19 +500,18 @@ function normalize(value) {
  * tree, or one of the configured `paths` — which IS such a directory itself and
  * so has no `.github` segment to be recognised by.
  *
- * A configured path is resolved exactly as discovery resolves it, relative to
- * the session cwd. A session with no cwd yet cannot place a relative entry, so
- * that entry is skipped rather than guessed at against the process cwd.
+ * A configured path is resolved exactly as discovery resolves it, `~` included.
+ * A session with no cwd yet cannot place a relative entry, so that entry is
+ * skipped rather than guessed at against the process cwd.
  */
-function touchesConfigDir(absolute, current, cwd) {
+function touchesConfigDir(absolute, current, cwd, home) {
   const observed = comparable(normalize(absolute))
   if (observed.includes(GITHUB_SEGMENT)) return true
 
   for (const entry of current.paths) {
-    const value = typeof entry === 'string' ? entry.trim() : ''
-    if (value === '') continue
-    if (cwd === null && !isPortableAbsolute(value)) continue
-    const base = comparable(normalize(resolve(cwd ?? process.cwd(), value))).replace(/\/+$/, '')
+    const dir = resolveConfiguredPath(cwd, entry, home)
+    if (dir === null) continue
+    const base = comparable(normalize(dir)).replace(/\/+$/, '')
     if (base === '') continue
     if (observed === base || observed.startsWith(`${base}/`)) return true
   }

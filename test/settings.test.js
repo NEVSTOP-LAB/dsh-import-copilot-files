@@ -9,7 +9,12 @@
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import plugin, { SETTINGS_NAMESPACE, attachSettings, normalizeSettings } from '../index.js'
+import plugin, {
+  SETTINGS_DEFAULTS,
+  SETTINGS_NAMESPACE,
+  attachSettings,
+  normalizeSettings,
+} from '../index.js'
 import { settingsSchema } from '../lib/settings.js'
 
 /** A schemastery stand-in that records what the schema asked for. */
@@ -160,14 +165,7 @@ test('a disposed mount does not register its namespace late', async () => {
 
 test('the schema covers exactly the row config, with the composition defaults', () => {
   const { z, calls } = recordingZ()
-  const defaults = {
-    maxBytes: 65536,
-    scanSubdirectories: 1,
-    instructionDirs: ['.github/instructions'],
-    skillDirs: ['.github/skills'],
-    paths: [],
-  }
-  const schema = settingsSchema(z, defaults)
+  const schema = settingsSchema(z, SETTINGS_DEFAULTS)
   assert.equal(schema.kind, 'object')
   assert.deepEqual(
     Object.keys(schema.dict),
@@ -177,10 +175,20 @@ test('the schema covers exactly the row config, with the composition defaults', 
   assert.deepEqual(schema.dict.scanSubdirectories.defaults, [1])
   assert.deepEqual(schema.dict.instructionDirs.defaults, [['.github/instructions']])
   assert.deepEqual(schema.dict.skillDirs.defaults, [['.github/skills']])
-  assert.deepEqual(schema.dict.paths.defaults, [[]])
+  assert.deepEqual(schema.dict.paths.defaults, [['~/.copilot']])
   assert.deepEqual(schema.dict.paths.kind, 'array')
   assert.deepEqual(schema.dict.paths.inner.kind, 'string')
   assert.equal(calls.length > 0, true)
+})
+
+test('the composition defaults start at the user-level .copilot directory', () => {
+  assert.deepEqual(SETTINGS_DEFAULTS, {
+    maxBytes: 65536,
+    scanSubdirectories: 1,
+    instructionDirs: ['.github/instructions'],
+    skillDirs: ['.github/skills'],
+    paths: ['~/.copilot'],
+  })
 })
 
 test('normalizeSettings fills the documented defaults and drops unusable paths', () => {
@@ -189,11 +197,14 @@ test('normalizeSettings fills the documented defaults and drops unusable paths',
     scanSubdirectories: 1,
     instructionDirs: ['.github/instructions'],
     skillDirs: ['.github/skills'],
-    paths: [],
+    paths: ['~/.copilot'],
   })
   assert.deepEqual(normalizeSettings({ paths: ['D:\\shared', '', '  ', 42, null] }).paths, [
     'D:\\shared',
   ])
+  // An empty list is a value, not an absence: it is how a user opts out of the
+  // default entry in the card.
+  assert.deepEqual(normalizeSettings({ paths: [] }).paths, [])
   assert.deepEqual(normalizeSettings({ instructionDirs: [] }).instructionDirs, [])
   assert.deepEqual(normalizeSettings({ skillDirs: 'nope' }).skillDirs, ['.github/skills'])
   assert.equal(normalizeSettings({ maxBytes: -1 }).maxBytes, 65536)

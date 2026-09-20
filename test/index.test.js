@@ -17,9 +17,33 @@ import plugin from '../index.js'
 const WORKSPACE = fileURLToPath(new URL('./fixtures/workspace', import.meta.url))
 const SHARED = fileURLToPath(new URL('./fixtures/shared', import.meta.url))
 
+/**
+ * The home directory a mount resolves `~` against unless a test names its own.
+ *
+ * It is never created, so the default configured path (`~/.copilot`) contributes
+ * nothing and no assertion can depend on whoever runs the suite having one.
+ */
+const NO_HOME = join(tmpdir(), 'vscode-ai-config-no-home')
+
 const agentFor = (id, cwd = WORKSPACE) => ({ id, session: { header: { cwd } } })
 
 const textOf = (message) => message.content.map((part) => part.text ?? '').join('')
+
+/** A throwaway home holding the user-level `.copilot` configuration directory. */
+async function withHome(run) {
+  const home = mkdtempSync(join(tmpdir(), 'vscode-ai-config-home-'))
+  try {
+    mkdirSync(join(home, '.copilot', 'skills', 'home-skill'), { recursive: true })
+    writeFileSync(join(home, '.copilot', 'copilot-instructions.md'), 'HOME-MARKER: user-level rules.')
+    writeFileSync(
+      join(home, '.copilot', 'skills', 'home-skill', 'SKILL.md'),
+      '---\nname: home-skill\ndescription: home\n---\nbody',
+    )
+    return await run(home)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+}
 
 /** A minimal stand-in for the host context this row is composed into. */
 function mount(cwd = WORKSPACE, config = {}, options = {}) {
@@ -58,7 +82,10 @@ function mount(cwd = WORKSPACE, config = {}, options = {}) {
     }
   }
 
-  plugin.apply(ctx, config, options.loadSchema === undefined ? undefined : { loadSchema: options.loadSchema })
+  plugin.apply(ctx, config, {
+    loadSchema: options.loadSchema,
+    homeDir: options.homeDir ?? NO_HOME,
+  })
 
   const observe = (path, who = agent) => {
     for (const listener of listeners.get('fs/observed') ?? []) {
@@ -428,6 +455,58 @@ test('a configured path that does not exist changes nothing', async () => {
   const withoutPaths = await mount(WORKSPACE, { paths: [join(WORKSPACE, 'gone')] }).render()
   assert.match(withoutPaths, /Instructions from: \.github\/copilot-instructions\.md/)
   assert.doesNotMatch(withoutPaths, /keep the shared convention/)
+})
+
+test('the default configured path is the user-level .copilot directory', async () => {
+  // Nobody configures this: `paths` starts as `['~/.copilot']`, so a session
+  // picks up the per-user Copilot home unless it is turned off explicitly.
+  await withHome(async (home) => {
+    const session = mount(WORKSPACE, {}, { homeDir: home })
+    const rendered = await session.render()
+    assert.match(rendered, /HOME-MARKER/)
+    assert.match(rendered, /Instructions from: .*copilot\/copilot-instructions\.md/)
+
+    const names = (await session.list({ cwd: WORKSPACE })).map((skill) => skill.name)
+    assert.deepEqual(names, [
+      'child-skill',
+      'demo-skill',
+      'dir-named-skill',
+      'home-skill',
+      'quiet-skill',
+    ])
+  })
+})
+
+test('an explicit empty paths list turns the default off', async () => {
+  await withHome(async (home) => {
+    const rendered = await mount(WORKSPACE, { paths: [] }, { homeDir: home }).render()
+    assert.match(rendered, /Workspace rules/)
+    assert.doesNotMatch(rendered, /HOME-MARKER/)
+  })
+})
+
+test('a change under the default user-level directory invalidates the skill catalog', async () => {
+  await withHome(async (home) => {
+    const session = mount(WORKSPACE, {}, { homeDir: home })
+    await session.render()
+    session.observe(join(home, '.copilot', 'skills', 'new-skill', 'SKILL.md'))
+    assert.equal(session.invalidations(), 1)
+
+    // A sibling of the home directory merely shares a prefix with it.
+    session.observe(`${join(home, '.copilot')}-elsewhere\\skills\\x\\SKILL.md`)
+    assert.equal(session.invalidations(), 1)
+  })
+})
+
+test('a home-relative entry is placed even before the session has a cwd', async () => {
+  // The relative entry in the same position is skipped (see above); `~` carries
+  // its own anchor, so it is not.
+  await withHome(async (home) => {
+    const session = mount(WORKSPACE, {}, { homeDir: home })
+    const noCwd = { id: 'session-no-cwd', session: { header: {} } }
+    session.observe(join(home, '.copilot', 'skills', 'x', 'SKILL.md'), noCwd)
+    assert.equal(session.invalidations(), 1)
+  })
 })
 
 /** The real loader needs a DSH install; the wiring is what these tests drive. */

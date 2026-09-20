@@ -29,17 +29,11 @@
 import { readFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { SETTINGS_NAMESPACE } from '../index.js'
+import { SETTINGS_DEFAULTS, SETTINGS_NAMESPACE } from '../index.js'
 import { settingsSchema } from '../lib/settings.js'
 
-/** The composition defaults the schema is built from; mirrors index.js. */
-const DEFAULTS = {
-  maxBytes: 65536,
-  scanSubdirectories: 1,
-  instructionDirs: ['.github/instructions'],
-  skillDirs: ['.github/skills'],
-  paths: [],
-}
+/** The composition defaults, taken from the plugin itself so the two cannot drift. */
+const DEFAULTS = SETTINGS_DEFAULTS
 
 const NAMESPACE_PATTERN = /^[a-z][a-z0-9-]*$/
 const PACKAGE = '@deepseek-ai/schemastery'
@@ -183,8 +177,8 @@ check('defaults are cloned per resolve, so a consumer cannot mutate the schema',
   const first = schema({})
   first.paths.push('mutated')
   const second = schema({})
-  assert(second.paths.length === 0, JSON.stringify(second.paths))
-  return 'the second resolve is still empty'
+  assert(second.paths.length === DEFAULTS.paths.length, JSON.stringify(second.paths))
+  return `the second resolve is still ${JSON.stringify(second.paths)}`
 })
 
 check('toJSON() is the { uid, refs } envelope the browser rebuilds from', () => {
