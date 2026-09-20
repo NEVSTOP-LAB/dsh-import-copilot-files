@@ -171,10 +171,11 @@ dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files
 ```
 
 Both rows at once would inject the same configuration **twice**. The plugin id and the settings
-namespace are part of the same rename, so after upgrading also re-check `paths` under
-**Settings → Plugins → plugin configuration** and delete the leftover `import-vscode-ai-files:`
-section of `$DSH_HOME/settings.yaml` — a section under the old namespace is never read, so the paths
-it holds will not take effect.
+namespace are part of the same rename, so after upgrading also deal with the leftover
+`import-vscode-ai-files:` section of `$DSH_HOME/settings.yaml` — a section under the old namespace is
+never read, so the paths it holds will not take effect: **rename** that section to
+`import-copilot-files:`, or re-enter the paths under **Settings → Plugins → plugin configuration**
+(the card starts from the composition default, so simply deleting the old section loses your paths).
 
 ### The peer-dependency warning during installation
 

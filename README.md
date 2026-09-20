@@ -152,9 +152,11 @@ dsh plugin --profile desktop remove dsh-import-vscode-ai-files
 dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files
 ```
 
-两条行同时存在会让同一份配置**注入两次**。插件 id 与设置命名空间同属这次改名，所以升级后还要：
-在 **设置 → 插件 → 插件配置** 里重新确认 `paths`，并删掉 `$DSH_HOME/settings.yaml` 里遗留的
-`import-vscode-ai-files:` 小节 —— 旧命名空间的小节不会被读取，留着它里面的路径不会生效。
+两条行同时存在会让同一份配置**注入两次**。插件 id 与设置命名空间同属这次改名，所以升级后还要
+处理 `$DSH_HOME/settings.yaml` 里遗留的 `import-vscode-ai-files:` 小节 —— 旧命名空间的小节不会
+被读取，其中的 `paths` 不会生效：把该小节**改名**成 `import-copilot-files:`，或在
+**设置 → 插件 → 插件配置** 里重新填一遍（卡片一开始显示的是组合配置的默认值，直接删掉旧小节会
+丢掉你原来的路径）。
 
 ### 安装时那条 peer 依赖警告
 
