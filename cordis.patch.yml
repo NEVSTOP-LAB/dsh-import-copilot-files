@@ -15,11 +15,17 @@
 # rather than behind an `isolate` realm; registering on the host plane is what
 # makes its contributions global, i.e. visible to every session and preset.
 #
-# This row's `config` is also the base layer of the plugin's settings namespace
-# (`import-copilot-files`), which the same plugin serves to the GUI's
-# Settings → Plugins → plugin-configuration tab. Editing `paths` there takes
-# effect without a restart; leaving it here is what a deployment without that
-# card, or a pinned one, runs on.
+# The row's `id` is the Loader entry id, and since dsh 0.1.7 that id is also the
+# settings entry `dsh-settings` derives this plugin's configuration form from —
+# the plugin's own `Config` schema is the settings document, so there is no
+# namespace to register. The browser half (`lib/client.js`) and `index.js` both
+# spell this id literally, and `npm run verify:settings` compares the three
+# against this file, which is where the id actually comes from.
+#
+# This row's `config` is also the form's `base` layer (`paths` is the one field
+# the GUI edits; it is declared `.volatile()` so a committed change reaches
+# discovery without re-composing the row). Leaving it here is what a deployment
+# without the settings provider, or one that cannot resolve schemastery, runs on.
 - insert:
     - id: dsh-import-copilot-files
       name: 'dsh-import-copilot-files'
@@ -34,7 +40,9 @@
         # it and `scanSubdirectories` does not apply to it. Absolute paths, or
         # paths relative to the session cwd; a leading `~` is the user's home
         # directory, which is what makes the default entry the per-user Copilot
-        # home (`[user]\.copilot`) on every machine. For example:
+        # home (`[user]\.copilot`) on every machine. The one field the GUI edits;
+        # a save lands as an override of this row in the profile's own patch
+        # layer. For example:
         #   paths:
         #     - ~/.copilot
         #     - D:\NEVSTOP-LAB\shared-ai-config

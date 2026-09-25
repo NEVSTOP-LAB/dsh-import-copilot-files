@@ -175,62 +175,74 @@ host 平面只有**一个实例服务所有会话**，所以每个会话的 `cwd
 这个插件在 profile 里本来就能缺其中任何一个（见 §3.8 的两处可选），而 optional 的 peer 不会进
 pnpm 的 peer 问题清单，所以这份声明既如实又不会给别人的安装添警告。加载期依赖因此仍是零。
 
-唯一的 import 例外是 §3.8 的设置 schema，它对 `@deepseek-ai/schemastery` 有硬需求（见该节），
-但走的是**惰性动态 import**，因此加载期依赖仍然是零：clone 下来没有 `node_modules`
-也照样 `npm run check`；解析不到 schemastery 的部署丢的是那张卡片，不是整个插件。
+唯一的例外是 §3.8 的 `Config` schema，它对 `@deepseek-ai/schemastery` 有硬需求（见该节），
+但走的是**运行期 `createRequire` + `try`**，模块顶层一个 import 都没有：clone 下来没有
+`node_modules` 也照样 `npm run check`；解析不到 schemastery 的部署丢的是那张设置页，
+不是整个插件。
 
 IO 全部同步（`discover()` 是同步函数）：零缓存、零失效逻辑，每个 pre-step 直接重读磁盘。
 代价是每步的文件系统开销（几十次 stat/readdir，亚毫秒级），换来的是"改文件下一步生效"
 这个用户可见的性质。
 
-### 3.8 运行时设置与「插件页」卡片
+### 3.8 运行时设置与「插件页」
 
-`paths` 需要能在 GUI 里改，而 DSH 的做法是 **settings namespace + 浏览器卡片**：
+`paths` 需要能在 GUI 里改。dsh `0.1.7` 起这条链长这样：
 
 ```
-host: ctx.inject(['settings'], c => c.settings.installSection(ctx, ns, schema, config, hooks))
-                         ↑ 组合配置当 base          ↑ 服务消失时回退到 config
-browser: ctx.settingsScope.bind({ namespace: ns })
-         ctx.slots.register({ name: 'settings.plugin.item', key: ns, locale: ns, … }, Card)
+host:    export const Config = z.object({ …, paths: z.array(z.string()).default(…).volatile() })
+                                ↑ 插件的 Config schema 就是该条目的设置文档，按 Loader 条目 id 寻址
+         dsh-settings 的 volatileForm() 只投影 volatile 字段 → 该条目的表单
+browser: const scope = ctx.configForms.get(entryId)                 // 读/写这一个条目
+         ctx.configForms.whileServed([entryId], () => ctx.slots.register(
+           { name: 'plugins.item', id: entryId, label, locale, inject }, Card))
 ```
 
-四周内部契约（签名与实测依据见 [compatibility.md §3.4](./compatibility.md)）：
+注意与 `0.1.5`/`0.1.6` 的三处差别（旧形态见 [compatibility.md §3.6](./compatibility.md)）：
+**没有** `ctx.settings.installSection`、**没有** `ctx.settingsScope.bind({ namespace })`、
+**没有** `settings.plugin.item`。设置文档不再是另一个 namespace，而是**这条 Loader 条目本身**。
 
-1. **`ctx.inject(['settings'], …)` 而不是静态 `inject`。** `settings` 是可选服务：
-   在它上线前调用回调不会发生；`installSection` 在服务消失时把 source 换回组合配置。
-   于是「没有设置服务」这条路径不需要任何分支代码。
-2. **`setSource` 给的是一个 getter，不是值。** 插件把它存成 `readSettings`，每次用之前调用
-   （`settings()`），所以一步之内的两次读取不会拿到两个版本，也不存在需要失效的缓存。
-3. **schema 必须是真正的 schemastery schema。** 服务本身不校验 schema 的形状，但浏览器要靠
-   `schema.toJSON()`（`{ uid, refs }` 信封）把它重建出来才能渲染表单；手写的形状像 schema 的
-   对象能通过 host，却会让卡片拿不到可编辑的值。所以这里不用 `lib/frontmatter.js` 那种
-   「自己写一个」的做法。
-4. **卡片的 slot key 就是 namespace**（`settings.plugin.item` 按 namespace 派发）。两半各自
-   硬编码同一个字符串：host 侧的 `SETTINGS_NAMESPACE` 与 browser 侧的 `NAMESPACE`
-   —— 这是本插件唯一一处「两半必须一致」的耦合，`test/settings.test.js` 与
-   `test/client.test.js` 各钉住一半。
+四处内部契约（签名与实测依据见 [compatibility.md §3.4](./compatibility.md)）：
 
-卡片只改 `paths`，其余字段仍只在组合配置里。写入走客户端 settings scope：
+1. **条目 id 就是设置命名空间。** `cordis.patch.yml` 的 `insert[].id` 同时是：`dsh-settings`
+   的 `describe()` 里那条 descriptor 的 `ns`、browser half 里 `configForms.get` 的参数、
+   以及 `plugins.item` 注册的 `id`（页面按 `id` 找卡片、再按同一个 `id` 取表单）。
+   三处各自硬编码同一个字符串，`npm run verify:settings` 直接比对。
+2. **`Config` 是 getter，不是静态 import。** Cordis 在组合该行时读一次 `plugin.Config`
+   （`runtime.Config = plugin.Config`），之后 `resolveConfig` 用它校验组合配置。
+   getter 里 `try` + 记忆化，所以「解析不到 schemastery」是一条**受支持的部署路径**：
+   `Config` 为 `undefined`，该条目没有表单，卡片不注册，插件照常跑。
+3. **只有 `paths` 是 `.volatile()`。** `dsh-settings` 的 `volatileForm` 从 volatile 字段投影
+   表单，`write` 又用 `validatePaths` 拒绝任何非 volatile 路径 —— 多标一个就会让 GUI 动到
+   本该只在组合配置里的旋钮，少标一个（或一个都不标）则该条目**没有任何表单**，卡片也就永远
+   不出现。`volatile` 还决定了写入是**原地提交**：`cordis-plugin-loader` 的 `_commitVolatile`
+   把新值写进运行中 config 的引用，所以 `normalizeSettings` 必须每次通过 `.get()` 读
+   （见 §3.7 与 `index.js` 的 `live()`），而不是把 config 快照一次。
+4. **卡片的 container 归宿主。** `plugins.item` 的一格同时服务两种 view：
+   `view: 'summary'` 是插件页卡片上的那行说明，`view: 'page'` 是打开后页面正文里的表单。
+   所以这个 bundle 画的是**表单**而不是卡片，页头、折叠、卡片外框都归宿主的
+   `ui-plugin-manager`；这里只照主题 token 画行编辑器与页脚。
+   slot 的注册契约由宿主的 catalog 给出（`id` 必填、`order`、`label` 可以是 thunk），
+   本插件的 `id` 用条目 id、`order: 50`、`label: () => t('title')`。
+
+卡片只改 `paths`，其余字段仍只在组合配置里。写入走 `ConfigFormController`：
 保存时带**草稿开始那一刻的 revision**，被并发改动抢先就拒绝而不是覆盖；保存成功后**回读**
 宿主给的值确认，而不是假定写入成功。「放弃」只丢弃未保存的草稿；要清掉**已存储**的用户覆盖
 是「恢复默认」的事（`unset`，字段确实被覆盖时才出现），清完值重新继承组合配置。
-落点是 DSH 自己的用户设置文档，工作区文件一个不写。
-
-卡片的外观**逐类照抄**宿主的 `PluginCard` 与它的字段样式：`.5px` 的 `border-l4`、16px 圆角、
-`bg-layer-3` 上的折叠标题栏（展开后才渲染 body）、字段的 label + hint + input，以及页脚右侧的
-「放弃 / 保存」。原因是「插件配置」页只负责排版与按 namespace 派发，**不画卡片** —— 容器是
-各插件自己的。chevron 与胶囊按钮按 primitives 的几何手绘：本 bundle 只允许 `require('react')`。
+落点是 **profile 自己的 patch 层**（`~/.dsh/profiles/<profile>/cordis.patch.yml` 里该条目的
+`config`）——`dsh-settings` 的 `configEditor` 就是 profile patch 文档；`0.1.5` 时代的
+`$DSH_HOME/settings.yaml` 已由上游迁移或改名，工作区文件一个不写。
 
 「浏览…」按**当前部署能用的路由**取目录：DSH Desktop 的 win32 profile 会把
 `dsh-host-directory-picker-auto` 禁用掉、改挂 `browse` 后端，而 `browse` 没有 `pick` 能力
 （Remote 会答 `directory-picker/unavailable`），所以那里走 DSH Desktop 装在页面上的
 `window.__DSH_DESKTOP_PICK_DIRECTORY__`；其余组合挂的是 `native` 后端，走
 `uiWorkspace.pickDirectory()`。路由在**每次点击时**解析（宿主按 slot entry 记忆化注入的
-props）：`hasChooser` 为假时卡片**不渲染「浏览…」按钮**（路径手填），路由存在但这次选择被
-拒绝时给出提示，不静默失败。
+props）：`hasChooser` 为假时页面**不渲染「浏览…」按钮**（路径手填），路由存在但这次选择被
+拒绝时给出提示，不静默失败。这条缝用 `ctx.get('uiWorkspace')`（可选）而不是静态 `inject`。
 
-提交后的变更还会调用 `control.invalidate()` 让**技能目录**失效。设置写入不碰文件系统，
-`fs/observed` 不会给它任何信号，不接线的话保存了新路径也要等到下一次无关的文件观察才生效。
+提交后的变更还会让**技能目录**失效：设置写入不碰文件系统，`fs/observed` 不会给它任何信号，
+所以 host 半侧监听 `loader/volatile-update`（`cordis-plugin-loader` 只在**本条目自己的
+fiber** 上发出）并调用 `control.invalidate()`。
 
 仓库内的 bundle 是**手写的 lazy-CJS**（`window.__ModuleLoader__.load({ id, factory })`），
 不引入任何构建步骤——与 dsh-git-rollback 这类第三方插件的做法一致。
@@ -239,24 +251,28 @@ props）：`hasChooser` 为假时卡片**不渲染「浏览…」按钮**（路�
 
 | 文件 | 职责 |
 | --- | --- |
-| `index.js` | 插件入口：`agent/pre-step` 注入、skill provider、`fs/observed`、设置命名空间的接线 |
+| `index.js` | 插件入口：`agent/pre-step` 注入、skill provider、`fs/observed`、`Config` schema 与 `loader/volatile-update` |
 | `lib/discover.js` | 扫描配置目录（cwd 各项目根的 `.github`，以及本身就是配置目录的 `paths` 条目），产出 instructions 与 skills；并导出配置路径的解析（cwd 相对、`~` 主目录）与绝对路径判定 |
 | `lib/frontmatter.js` | 极简 YAML frontmatter（标量、引号、`\|` `>` 块、行内与列表数组、注释） |
 | `lib/glob.js` | `applyTo` 的 glob → RegExp，含括号感知的逗号切分 |
-| `lib/settings.js` | 设置命名空间的 schema（`z` 由调用方传入，所以本文件可离线测试） |
-| `lib/client.js` | browser half：设置卡片（手写 lazy-CJS bundle，无构建步骤） |
-| `scripts/verify-settings-schema.mjs` | 拿真实 schemastery 复核设置链（找得到才跑，找不到跳过并退 0） |
+| `lib/settings.js` | `Config` schema，即该条目的设置文档（`z` 由调用方传入，所以本文件可离线测试） |
+| `lib/client.js` | browser half：`plugins.item` 上的设置页（手写 lazy-CJS bundle，无构建步骤） |
+| `scripts/verify-settings-schema.mjs` | 拿真实 schemastery + 真实 `dsh-settings` 复核设置链（找得到才跑，找不到跳过并退 0） |
 
 ## 5. 已知边界与后续
 
 - **不监视文件**：没有 watcher。`.github` 的增删改在"下一个模型步骤"生效（因为每步重读），
   但**技能目录**还需要一次失效信号：`.github` 树与 `paths` 条目下的文件观察由 `fs/observed`
-  提供，设置卡片提交的 `paths` 不碰文件系统、拿不到这个信号，所以卡片的提交回调显式调用
-  `control.invalidate()`（见 §3.8 末段）。
-- **只写一处**：插件不写工作区任何文件。唯一的写路径是设置卡片提交的 `paths`，它由宿主
-  设置服务落进 DSH 自己的用户设置文档。
-- **卡片只覆盖 `paths`**：`maxBytes`、`scanSubdirectories`、`instructionDirs`、`skillDirs`
-  仍然只能在组合配置里改（改完要重启，因为 profile patch 层不热重载）。
+  提供，设置页提交的 `paths` 不碰文件系统、拿不到这个信号，所以 host 半侧监听
+  `loader/volatile-update` 并显式调用 `control.invalidate()`（见 §3.8 末段）。
+- **只写一处**：插件不写工作区任何文件。唯一的写路径是设置页提交的 `paths`，它由宿主的
+  `configEditor` 落进 **profile 自己的 patch 层**。
+- **设置页只覆盖 `paths`**：`maxBytes`、`scanSubdirectories`、`instructionDirs`、`skillDirs`
+  仍然只能在组合配置里改（故意不标 volatile，页面也就看不到它们；改完要重启，因为
+  profile patch 层不热重载）。
+- **设置页只在 dsh ≥ 0.1.7 上存在**：静态 `inject` 里不能出现可选服务名（§3.8 契约 2、
+  [compatibility.md §3.6](./compatibility.md)），这是本项目唯一一次「插件把宿主拖进安全模式」
+  的成因。
 - **只展开开头的 `~`**：`paths` 条目里只有开头那个 `~`（单独一个，或后跟 `/`、Windows 上 `\`）
   表示用户主目录，`~name` 与 `a/~/b` 都是普通相对路径；通配符与环境变量不展开。相对路径相对
   会话 cwd 解析，所以「相对路径」在不同会话里指向不同位置，写绝对路径或 `~` 更稳。默认条目

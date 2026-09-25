@@ -29,6 +29,18 @@ const agentFor = (id, cwd = WORKSPACE) => ({ id, session: { header: { cwd } } })
 
 const textOf = (message) => message.content.map((part) => part.text ?? '').join('')
 
+/** The protocol `createVolatile` writes; reproduced to build a live Config field. */
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+/**
+ * One live Config field, exactly as `z…volatile()` resolves one, plus a `set`
+ * the test can use to commit a change the way the loader does.
+ */
+function volatileField(value) {
+  const field = { get: () => value, set: (next) => { value = next } }
+  return Object.freeze({ get: field.get, set: field.set, [VOLATILE_WRITE]: () => {} })
+}
+
 /** A throwaway home holding the user-level `.copilot` configuration directory. */
 async function withHome(run) {
   const home = mkdtempSync(join(tmpdir(), 'copilot-ai-config-home-'))
@@ -51,7 +63,6 @@ function mount(cwd = WORKSPACE, config = {}, options = {}) {
   const agent = agentFor('session-a', cwd)
   let invalidations = 0
   let provider = null
-  const settingsInstalls = []
 
   const ctx = {
     skills: {
@@ -66,26 +77,7 @@ function mount(cwd = WORKSPACE, config = {}, options = {}) {
     },
   }
 
-  if (options.settings === true) {
-    // The real `settings` service is optional; this is the shape `attachSettings`
-    // wires, so the plugin can be driven from a settings section as it is in DSH.
-    ctx.effect = () => {}
-    ctx.inject = (services, callback) => {
-      assert.deepEqual(services, ['settings'])
-      callback({
-        settings: {
-          installSection(owner, ns, schema, entry, hooks) {
-            settingsInstalls.push({ owner, ns, schema, entry, hooks })
-          },
-        },
-      })
-    }
-  }
-
-  plugin.apply(ctx, config, {
-    loadSchema: options.loadSchema,
-    homeDir: options.homeDir ?? NO_HOME,
-  })
+  plugin.apply(ctx, config, { homeDir: options.homeDir ?? NO_HOME })
 
   const observe = (path, who = agent) => {
     for (const listener of listeners.get('fs/observed') ?? []) {
@@ -129,13 +121,14 @@ function mount(cwd = WORKSPACE, config = {}, options = {}) {
       }
     },
     invalidations: () => invalidations,
-    settingsInstalls,
-    /** Publish a settings value the way the settings service does: source, then change. */
-    setSettings(value) {
-      assert.equal(settingsInstalls.length, 1, 'the settings namespace must be installed first')
-      const hooks = settingsInstalls[0].hooks
-      hooks.setSource(() => value)
-      hooks.onChange()
+    /**
+     * Publish a committed settings change the way the loader does: the volatile
+     * references on the running config are rewritten, then the entry's own fiber
+     * is told. The values themselves the test sets on its own `volatileField`s —
+     * reading through them is what makes the change visible.
+     */
+    commitVolatile() {
+      for (const listener of listeners.get('loader/volatile-update') ?? []) listener(['paths'])
     },
   }
 }
@@ -509,65 +502,47 @@ test('a home-relative entry is placed even before the session has a cwd', async 
   })
 })
 
-/** The real loader needs a DSH install; the wiring is what these tests drive. */
-const fakeSchema = async () => 'SCHEMA'
-const flush = () => new Promise((resolve) => setImmediate(resolve))
-
-test('the settings section drives discovery, not just the composition config', async () => {
-  const session = mount(WORKSPACE, {}, { settings: true, loadSchema: fakeSchema })
-  await flush()
-  assert.equal(session.settingsInstalls.length, 1)
-  const installed = session.settingsInstalls[0]
-  assert.equal(installed.ns, 'import-copilot-files')
-  assert.equal(installed.schema, 'SCHEMA')
-  assert.deepEqual(installed.entry, {}, 'the composition config is the base layer')
-
+test('a committed paths change drives discovery, not just the composition config', async () => {
+  // A `.volatile()` Config field resolves to a live reference, so the saved value
+  // arrives without re-composing the row: the plugin has to read through it —
+  // and read it again on every step — rather than snapshot the config once.
+  const paths = volatileField([])
+  const session = mount(WORKSPACE, { paths })
   assert.doesNotMatch(await session.render(), /keep the shared convention/)
 
-  session.setSettings({ paths: [SHARED] })
+  paths.set([SHARED])
+  session.commitVolatile()
   assert.match(await session.render(), /keep the shared convention/)
 })
 
-test('the settings section also drives the skill catalog', async () => {
-  const session = mount(WORKSPACE, {}, { settings: true, loadSchema: fakeSchema })
-  await flush()
-  session.setSettings({ paths: [SHARED] })
+test('a committed paths change drives the skill catalog too', async () => {
+  const paths = volatileField([])
+  const session = mount(WORKSPACE, { paths })
+  assert.equal((await session.list({ cwd: WORKSPACE })).some((s) => s.name === 'shared-skill'), false)
+
+  paths.set([SHARED])
+  session.commitVolatile()
   const names = (await session.list({ cwd: WORKSPACE })).map((skill) => skill.name)
   assert.ok(names.includes('shared-skill'))
 })
 
 test('a committed settings change invalidates the skill catalog', async () => {
-  // Nothing the settings service does touches the filesystem, so no
-  // `fs/observed` signal arrives to refresh the catalog: if this hook is not
-  // wired, a saved path can add skills the model never learns about.
-  const session = mount(WORKSPACE, {}, { settings: true, loadSchema: fakeSchema })
-  await flush()
+  // Nothing that commits a config change touches the filesystem, so no
+  // `fs/observed` signal arrives to refresh the catalog: if the loader event is
+  // not wired, a saved path can add skills the model never learns about.
+  const session = mount(WORKSPACE, { paths: volatileField([]) })
   const before = session.invalidations()
-  session.setSettings({ paths: [SHARED] })
+  session.commitVolatile()
   assert.equal(session.invalidations(), before + 1)
 })
 
-test('a namespace that cannot be installed leaves the composition config in charge', async () => {
-  const reported = []
-  const original = console.error
-  console.error = (...args) => reported.push(args)
-  try {
-    const session = mount(
-      WORKSPACE,
-      {},
-      {
-        settings: true,
-        loadSchema: async () => {
-          throw new Error('schemastery is not installed')
-        },
-      },
-    )
-    await flush()
-    assert.equal(session.settingsInstalls.length, 0)
-    assert.match(await session.render(), /Workspace rules/)
-  } finally {
-    console.error = original
-  }
-  assert.equal(reported.length, 1)
-  assert.match(String(reported[0][0]), /settings namespace not registered/)
+test('a deployment with no settings schema still runs on its composition config', async () => {
+  // The schema is what gives the entry a form; it is not what makes the plugin
+  // run. A row composed from a plain config object — the shape a profile with no
+  // resolvable schemastery resolves — behaves exactly like the deployment that
+  // has one, minus the GUI page.
+  const session = mount(WORKSPACE, { paths: [SHARED] })
+  assert.match(await session.render(), /keep the shared convention/)
+  const names = (await session.list({ cwd: WORKSPACE })).map((skill) => skill.name)
+  assert.ok(names.includes('shared-skill'))
 })

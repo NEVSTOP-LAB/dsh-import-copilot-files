@@ -11,13 +11,13 @@ dsh-import-copilot-files/
 ├── docs/                # 维护者文档：design / development / compatibility / pitfalls
 ├── package.json         # bundle manifest（dsh.bundle.patch）与 client manifest（dsh.client）
 ├── cordis.patch.yml     # 组合层：插入插件行
-├── index.js             # 插件入口：指令注入 + skill provider + fs/observed + 设置接线（GUI 里那行叫「上下文注入」）
+├── index.js             # 插件入口：指令注入 + skill provider + fs/observed + Config（GUI 里那行叫「上下文注入」）
 ├── lib/
 │   ├── discover.js      # 扫描配置目录，产出 instructions 与 skills
 │   ├── frontmatter.js   # 极简 YAML frontmatter
 │   ├── glob.js          # applyTo 的极简 glob → RegExp
-│   ├── settings.js      # 设置命名空间的 schema（z 由调用方传入）
-│   └── client.js        # browser half：设置卡片（手写 lazy-CJS bundle）
+│   ├── settings.js      # Config schema，即该条目的设置文档（z 由调用方传入）
+│   └── client.js        # browser half：plugins.item 上的设置页（手写 lazy-CJS bundle）
 ├── scripts/
 │   ├── release-notes.mjs # 由 CHANGELOG 组装 Release 正文（零依赖）
 │   ├── pack.mjs          # 跨平台打包（npm pack → dist/）
@@ -61,21 +61,20 @@ CI（`.github/workflows/ci.yml`）在 ubuntu 上跑同一条命令。
 > 那种环境下逐个文件直接跑即可，六个测试文件都支持单独执行：
 > `node test/glob.test.js`、`node test/frontmatter.test.js`、`node test/discover.test.js`、
 > `node test/index.test.js`、`node test/settings.test.js`、`node test/client.test.js`。
-
 ### 2.1 测试用什么驱动
 
 `test/index.test.js` **不需要 DSH**：它对着一个假的 Cordis 上下文驱动**真实的插件对象** ——
 按真实语义跑 `agent/pre-step` 瀑布（含 `next()` 链）、真实的 skill provider、真实的
-`fs/observed` 监听器。所以绝大多数行为 clone 之后立刻可验证。它还带一条端到端：把设置服务
-给的值换掉之后，`paths` 真的出现在下一次注入与技能目录里（`mount(..., { settings: true })`
-提供的是一个假 `settings` 服务，schema loader 由 `apply` 的 `options.loadSchema` 注入 ——
-真实 loader 需要 DSH 安装，见 §3）。
+`fs/observed` 监听器。所以绝大多数行为 clone 之后立刻可验证。它还带一条端到端：把 `paths`
+的**活引用**换掉（`volatileField(...)`，就是 `.volatile()` 字段被解析成的那个形状）之后，
+新值真的出现在下一次注入与技能目录里，而 `loader/volatile-update` 会让技能目录失效。
 
-`test/settings.test.js` 把 schema loader 注入进去，所以它能在没有 `@deepseek-ai/schemastery`
-的 checkout 里钉住命名空间的接线；`test/client.test.js` **跑的是真实的 `lib/client.js`** ——
-它按客户端模块系统的方式执行那个 bundle（假的 `window.__ModuleLoader__`、假的 `require`、
-一个 React 替身），再驱动 `apply(ctx)` 与卡片组件，包括暂存、保存（revision 与回读确认）、
-只读态与样式安装/卸载。
+`test/settings.test.js` 用注入的 schema 替身（`configSchemaFor(z)`）钉住 `Config` 的形状：
+字段、默认值、**只有 `paths` 是 volatile**、`normalizeSettings` 读的是活引用而不是快照；
+`test/client.test.js` **跑的是真实的 `lib/client.js`** —— 它按客户端模块系统的方式执行那个
+bundle（假的 `window.__ModuleLoader__`、假的 `require`、一个 React 替身），再驱动
+`apply(ctx)` 与页面组件，包括注册（entry id / `plugins.item` / 两种 view）、暂存、保存
+（revision 与回读确认）、只读态与样式安装/卸载。
 
 每次改行为，先问「这条能被 `node --test` 钉住吗」。不能的部分才留给人眼验证（§2.2）。
 
@@ -91,45 +90,60 @@ CI（`.github/workflows/ci.yml`）在 ubuntu 上跑同一条命令。
    `invocation` 策略、`resourceBase` 与正文。
 3. `fs/observed` —— 确认 `actor.agent` 存在（按会话分桶的前提）。
 
-`cordis-plugin-development` skill 里有完整流程。
+`cordis-plugin-development` skill 里有完整流程。**升级 DSH 之后先查 §1.2 的静态 `inject`
+列表**：里面出现一个没人提供的服务名，插件 fiber 会永远 pending，客户端启动报告把它算作
+「加载失败」，Desktop 于是进恢复界面 —— 见 [compatibility.md §3.6](./compatibility.md)。
 
-### 2.3 设置卡片怎么验证
+### 2.3 设置页怎么验证
 
-卡片只有在**装好的 profile 里、DSH 重启之后**才会出现，所以它没有 §2.1 之外的自动化路径：
+设置页只有在**装好的 profile 里、DSH 重启之后**才会出现，所以它没有 §2.1 之外的自动化路径：
 
 1. `npm run pack`，再 `dsh plugin --profile <p> add ./dist/dsh-import-copilot-files-<v>.tgz`，
    然后**重启 DSH**（profile patch 层不热重载）。
-2. 打开 **设置 → 插件 → 插件配置**，确认本插件那张卡片出现，标题与「导入 Copilot 文件」
-   （英文界面 `Import Copilot Files`）一致 —— 出现本身就说明四件事同时成立：host 注册了
-   namespace、`dsh.client` 被扫描到、bundle 被 `/plugins` 提供、卡片的 slot key 与 namespace 相同。
-3. 点开卡片的标题栏，确认展开后的字段与页脚，以及行内的「浏览…」：在 DSH Desktop 窗口里按它
+2. 打开 **设置 → 插件**，确认本插件那张卡片出现，标题与「导入 Copilot 文件」
+   （英文界面 `Import Copilot Files`）一致 —— 出现本身就说明四件事同时成立：`Config`
+   解析成功且含 volatile 字段、`dsh-settings` 提供了该条目的表单、`dsh.client` 被扫描到、
+   bundle 被提供且注册的 cell id 与条目 id 相同。
+3. 点开卡片，确认页面正文里的字段与页脚，以及行内的「浏览…」：在 DSH Desktop 窗口里按它
    应弹出 Windows 系统选择框，选中的目录直接填进那一行（仍是未保存的草稿，要再点「保存」）。
-4. 加一个真实存在的共享配置目录、保存，然后确认两件事：`$DSH_HOME/settings.yaml` 里出现
-   `import-copilot-files:` 小节；新会话的「上下文注入 · `import-copilot-files`」行里出现该目录
-   下的指令（标题是绝对路径）。注意该目录**自己**就是 `.github` 的等价物：直接放
-   `copilot-instructions.md`、`instructions/`、`skills/`，不要在它下面再建 `.github`。
+4. 加一个真实存在的共享配置目录、保存，然后确认两件事：
+   `~/.dsh/profiles/<profile>/cordis.patch.yml` 里该条目出现 `config.paths`；新会话的
+   「上下文注入 · `import-copilot-files`」行里出现该目录下的指令（标题是绝对路径）。
+   注意该目录**自己**就是 `.github` 的等价物：直接放 `copilot-instructions.md`、
+   `instructions/`、`skills/`，不要在它下面再建 `.github`。
 5. 「恢复默认」（字段被覆盖时才出现）应清掉用户覆盖，值回到 `cordis.patch.yml`；
    「放弃」只应丢弃未保存的草稿，不动已存储的值。
 6. 未实测清单见 [compatibility.md](./compatibility.md)——**做完这几步就把对应条目划掉**。
 
+> [!WARNING]
+> 这一步会把本插件重新装进你正在使用的 profile：**在 dsh ≥ 0.1.7 上，一个静态 `inject`
+> 里挂着不存在服务名的 bundle 会把 DSH 拖进安全模式**。本仓库的当前版本已经修好，但如果你在
+> 验证旧提交，请留好 `dsh plugin --profile <p> remove dsh-import-copilot-files` 这条退路。
+
 ## 3. 设置链：`npm run verify:settings`
 
-`test/settings.test.js` 用替身钉住接线，但没有 `@deepseek-ai/schemastery` 就无法回答那个真正
-致命的问题：host 注册的 schema，**浏览器能不能重建**？客户端是按 `new Schema(serialized)`
-从 `toJSON()` 的信封重建的；重建失败时该 namespace 拿不到任何可编辑值，而且**一声不吭**。
+`test/settings.test.js` 用替身钉住 `Config` 的形状，但没有真实包就无法回答那两个真正致命的
+问题：host 给的表单，**浏览器能不能重建**？以及 `dsh-settings` 会不会把它**投影/写坏**？
+客户端是按 `new Schema(serialized)` 从 `toJSON()` 的信封重建的，重建失败时该 namespace
+拿不到任何可编辑值、而且**一声不吭**；投影只认 `.volatile()` 字段，标错一个字段就是一张空页面
+或一条被破坏的 profile patch。
 
-`scripts/verify-settings-schema.mjs` 就是拿真实的 schemastery 把这条链走一遍：解析组合配置
-（默认值、用户层）、拒绝卡片不该接受的写入、`toJSON()` 序列化、再从信封重建并校验，
-最后比对两半硬编码的 namespace 是否是同一个字符串。它在找不到 schemastery 时**跳过并退 0**
-（所以不进 `npm run check`），找得到就**认真失败**：
+`scripts/verify-settings-schema.mjs` 就是拿**真实的 `@deepseek-ai/schemastery` 与真实的
+`@deepseek-ai/dsh-settings`** 把这条链走一遍：解析组合配置（默认值、用户层）、拒绝页面不该
+接受的写入、`toJSON()` 序列化、再从信封重建并校验；然后用原型实例 + 假 `configEditor`
+驱动**上游自己的** `SettingsForms.describe()` 与 `update()`，核对 descriptor（`ns`、只含
+`paths` 的 `value`、数值 `revision`）与写出的行配置（保留 `maxBytes` / `scanSubdirectories`）；
+最后比对 `index.js`、`lib/client.js`、`cordis.patch.yml` 里那个 id 是否是同一个字符串。
+它在找不到 schemastery 时**跳过并退 0**（所以不进 `npm run check`），找得到就**认真失败**：
 
 ```sh
 npm run verify:settings
-# 或指定一个具体的 schemastery：
+# 或指定一份安装 / 一个具体的 schemastery：
+node scripts/verify-settings-schema.mjs --dsh-app <resources/app>
 node scripts/verify-settings-schema.mjs --schemastery <specifier-or-path>
 ```
 
-它从 `index.js` 导入 `SETTINGS_DEFAULTS`，默认值只有一份。
+它从 `index.js` 导入 `SETTINGS_DEFAULTS` 与 `SETTINGS_ENTRY_ID`，默认值与条目 id 各只有一份。
 
 ## 4. 打包与发版
 
