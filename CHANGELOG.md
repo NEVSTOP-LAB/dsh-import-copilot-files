@@ -7,6 +7,37 @@
 
 ## [Unreleased]
 
+### 修复：dsh 0.1.7 兼容（含破坏性变更）
+
+- **在 dsh `0.1.7` 上会把 DSH 拖进安全模式**（升级到 DSH Desktop 2.0.14 / dsh `0.1.7-rc.1` 后
+  一启用本插件，客户端启动就失败、DSH 落到恢复界面）。根因是旧实现把 `settingsScope` 放进了
+  **浏览器半侧的静态 `inject` 列表**：该服务在 `0.1.7` 改名成 `configForms`，于是这个 fiber
+  永远停在 pending，而 DSH Desktop 的 `rendererBootReport` 把任何非 ACTIVE 的条目算作
+  「插件加载失败」（`RendererStartupFailure`），启动流程随即进入安全模式。日志里只有一句
+  `renderer boot failed (plugins: dsh-import-copilot-files): The client Loader did not provide
+  an error message.`。同一版本还移除了 `ctx.settings.installSection(...)`（host 侧）与
+  `settings.plugin.item`（客户端 slot），三处一起改；完整证据链与对照实验见
+  [docs/compatibility.md §3.6](./docs/compatibility.md)。
+  - 浏览器半侧的静态 `inject` 收敛为 `['slots', 'locale', 'configForms']`（host 侧仍是
+    `['skills']`）；可选服务只走 `ctx.get(...)`，绝不再出现在静态列表里。
+  - 设置页从「插件配置」标签页的卡片改为**插件页**（`plugins.item`）里本插件的一格：
+    同一份注册同时服务 `view: 'summary'`（卡片上那行说明）与 `view: 'page'`（页面正文的
+    表单），页头/折叠/外框都交还给宿主；页面只保留行编辑器与页脚。
+  - 设置文档不再由插件注册 namespace，而是**插件自己的 `Config` schema**（`paths` 声明为
+    `.volatile()`），按 Loader 条目 id 寻址；host 半侧不再调用任何 Settings 服务方法，
+    改为监听 `loader/volatile-update` 让技能目录失效。
+  - `Config` 走 `createRequire` + `try` + 记忆化的 getter，所以**模块顶层依旧零依赖**：
+    clone 下来照样 `npm run check`；解析不到 `@deepseek-ai/schemastery` 的部署丢的是设置页，
+    不是整个插件。
+  - `peerDependencies` 的 `@deepseek-ai/dsh-settings` 范围改为 `>=0.1.7-rc.1 <0.2.0`
+    （旧范围按 semver 的预发布规则匹配不到 `0.1.7-rc.1`）；**不再兼容 dsh 0.1.5 / 0.1.6**。
+  - `npm run verify:settings` 升级为拿**真实的 `dsh-settings`** 跑上游的 `describe()` /
+    `update()`，并比对 `index.js` / `lib/client.js` / `cordis.patch.yml` 三处的条目 id；
+    离线用例另加一条「bundle 里不得再出现 `settingsScope` / `settings.plugin.item`」的回归钉子。
+  - 已知影响：旧的用户层小节名（`import-vscode-ai-files` / `import-copilot-files`）匹配不到
+    新条目 id，`0.1.7` 的迁移不会把它带过来，升级后 `paths` 会回到组合层默认值；手工写回的方法见
+    [docs/compatibility.md §3.7](./docs/compatibility.md)。
+
 ### 新增
 
 - **默认载入当前用户的 `[user]\.copilot` 目录**（[#10](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files/issues/10)）：
@@ -33,17 +64,18 @@
   注：把一个**位于 cwd 走查范围之外**的仓库根改写成 `paths: [<repo>/.github]` 也能工作，但
   `applyTo` 的锚点会从仓库根移到 `.github`；若那个仓库本来就在 cwd 走查范围内，它已经作为
   项目根被读到，改名到 `paths` 只会被去重、不改变锚点。cwd 侧的扫描规则一字未动。
-- **在「插件页」里配置路径**：插件现在注册一个 DSH 设置命名空间 `import-copilot-files`
-  （组合配置作为 base 层），并带上一个 browser half —— **设置 → 插件 → 插件配置** 里本插件
-  的那张卡片可以逐行增删路径，并保存、放弃或恢复默认。
+- **在「插件页」里配置路径**：插件现在导出一个 `Config` schema（组合配置作为它的 base 层），
+  并带上一个 browser half —— **设置 → 插件** 里本插件的那一项打开后，可以逐行增删路径，
+  并保存、放弃或恢复默认。
   - 保存带草稿开始时的 revision，被并发改动抢先就拒绝而不是覆盖；保存后以宿主回读的值确认。
   - 保存会立即让技能目录失效 —— 设置写入不碰文件系统，否则新路径下的技能要等到下一次
     无关的文件观察才会进目录。
   - 「放弃」只丢弃未保存的草稿；清掉已存储的用户覆盖用「恢复默认」（字段被覆盖时才出现）。
-  - 落点是 DSH 自己的用户设置文档（`$DSH_HOME/settings.yaml`），工作区文件一个不写；该文档
-    热重载，改完从下一个模型步骤起生效。
-  - 卡片只覆盖 `paths`；其余字段仍只在组合配置里。
-  - `settings` 服务不可用时，插件照常按组合配置运行，只是没有这张卡片。
+  - 落点是 DSH 自己的 profile 配置层（`~/.dsh/profiles/<profile>/cordis.patch.yml` 里本条目
+    的 `config`），工作区文件一个不写；改完从下一个模型步骤起生效。
+  - 页面只覆盖 `paths`；其余字段仍只在组合配置里（故意不标 volatile，页面看不到它们）。
+  - `Config` 解析不到（没有 schemastery）或宿主不提供设置表单时，插件照常按组合配置运行，
+    只是没有这一页。
 
 ### 变更
 
@@ -63,11 +95,11 @@
      移除旧包再装新名，否则两条组合行会让同一份配置**注入两次**：
      `dsh plugin --profile <p> remove dsh-import-vscode-ai-files`，再
      `dsh plugin --profile <p> add github:NEVSTOP-LAB/dsh-import-copilot-files`。
-  2. `$DSH_HOME/settings.yaml` 里旧命名空间的 `import-vscode-ai-files:` 小节**不再被读取**
-     （存储键就是命名空间），改名后它里面的 `paths` 不会生效 —— 把该小节改名成
-     `import-copilot-files:`，或在插件页里重新确认一次 `paths`。仓库从未打过 tag、也没有
-     Release，npm 上没有发布过版本，所以这不来自任何已发布的版本，而是 git 安装路径上已经
-     写下的配置。
+  2. 旧命名空间下保存过的 `paths` **不再被读取**：`0.1.7` 起设置文档就是本条目自己的
+     `config`（按 Loader 条目 id 寻址），不再有单独的命名空间。升级后请在插件页里重新确认一次
+     `paths`，或按 [docs/compatibility.md §3.7](./docs/compatibility.md) 把它写进 profile 的
+     patch 层。仓库从未打过 tag、也没有 Release，npm 上没有发布过版本，所以这不来自任何已发布的
+     版本，而是 git 安装路径上已经写下的配置。
   3. 若在 profile 的 patch 层按旧行 `id` 覆盖过本插件的 `config`，那份覆盖同样随行改名失效，
      需要改到新行上。
 - **文档按读者分层**（[#9](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files/issues/9)）：
@@ -77,10 +109,10 @@
   测试驱动、端到端与卡片的手工验证、打包发版）、`docs/compatibility.md`（依赖面、DSH 接缝、
   升级校验清单、验证记录与未实测清单）、`docs/pitfalls.md`（开发坑：跨平台与测试、插件行为、
   Windows 上的 git/gh）。
-- **卡片改用「插件配置」页其他插件的形态**：折叠的标题栏（名称 + 说明 + 展开箭头，行内显示
-  「未保存」标记）、展开后的字段（label + 提示 + 输入框）、右下角的「放弃 / 保存」，字段被
-  覆盖时行内给「已覆盖」标记与「恢复默认」。配色、圆角与边框全部走同一套设计 token，
-  与宿主自己的 `PluginCard` 逐类对齐；保存被宿主接受后卡片自动收起。
+- **插件页里的设置界面**：页面只画行编辑器（每行一个路径 + 「浏览…」「删除」）与页脚
+  （「放弃 / 保存」），字段被覆盖时行内给「已覆盖」标记与「恢复默认」，有未保存的草稿时给
+  「未保存」标记。配色、圆角与边框全部走同一套设计 token；卡片外框、页头与折叠交还给宿主
+  （`0.1.7` 的形态，见上面的修复条目）。
 
 ### 修复
 

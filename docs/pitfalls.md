@@ -56,26 +56,45 @@
   只有**开头**的 `~` 是主目录（`~name`、`a/~/b` 是普通相对路径），通配符与环境变量不展开。
 - **`disable-model-invocation: true` 会让技能不进目录**。这是既定语义，不是插件 bug；
   想让模型看到就不要写这一行（或写 `false`）。
-- **卡片的 slot key 必须等于设置命名空间**。`settings.plugin.item` 是按 namespace 派发的：
-  key 写错不会报错，卡片只是永远不出现。host 侧的 `SETTINGS_NAMESPACE`（`index.js`）与
-  browser 侧的 `NAMESPACE`（`lib/client.js`）是同一个字符串的两份硬编码，改一个必须改另一个。
+- **静态 `inject` 里不能放可选服务，也绝不能放一个不存在的名字。** 这不是「最多拿不到那个
+  功能」：fiber 会**永远停在 pending**，而客户端启动报告（Desktop 的 `rendererBootReport`）
+  把任何非 ACTIVE 的条目算作插件加载失败 —— 结果是 **DSH 起不来，落到恢复界面/安全模式**，
+  日志里还只有一句 `renderer boot failed (plugins: …): The client Loader did not provide an
+  error message.`（`loader.await()` 对 pending 不 reject，所以报告里没有 error 字段）。
+  2026-09-25 就是这么被 dsh `0.1.7` 改名后的 `settingsScope` 坑掉的
+  （[compatibility.md §3.6](./compatibility.md)）。可选服务要么放在**嵌套的**
+  `ctx.inject([...], cb)` 里（服务不在时回调不执行），要么用 `ctx.get(name)` 现取现判。
+  对照：同 profile 的 `dshmarket` 也引用了 `settingsScope`，因为只写在嵌套 `ctx.inject` 里，
+  它的设置页消失了但 DSH 照常启动。
+- **页面注册的 cell id 必须等于 Loader 条目 id。** `plugins.item` 的 cell 按 `id` 找卡片、
+  按同一个 `id` 取表单（`configForms.get(id)`），而 `dsh-settings` 是按**条目 id** 给设置
+  文档编 key 的：`cordis.patch.yml` 的 `insert[].id`、`index.js` 的 `SETTINGS_ENTRY_ID`、
+  `lib/client.js` 的 `ENTRY_ID` 是同一个字符串的三份硬编码，改一个必须改另外两个
+  （`npm run verify:settings` 逐份比对）。`0.1.7` 之前这里曾是「slot key = 设置 namespace」，
+  那个 namespace 已经不存在了。
+- **`Config` 的 volatile 标记决定页面里能看到什么。** `dsh-settings` 的 `volatileForm` 只投影
+  `.volatile()` 字段，`write` 又用 `validatePaths` 拒绝非 volatile 路径：多标一个字段，
+  GUI 就能改那本该只在组合配置里的旋钮；一个都不标，该条目**没有任何表单**，页面永远不注册。
+  本插件只标 `paths`。另外 volatile 字段解析出来是**活引用**（`{ get(), [Symbol.for(
+  'cosmokit.volatile.write')] }`），`normalizeSettings` 必须每次读 `.get()`，把 config 快照
+  一次就等于把改动冻住。
 - **「浏览…」不能只走一条路由**。win32 的 DSH Desktop profile 禁用了
   `dsh-host-directory-picker-auto`，改挂 `browse` 后端，而 `browse` 没有 `pick` 能力：
   `uiWorkspace.pickDirectory()` 在那里**必然被拒**（`directory-picker/unavailable`）。
   可用的两条路由是 `window.__DSH_DESKTOP_PICK_DIRECTORY__`（Desktop / win32）与
   `uiWorkspace.pickDirectory()`（挂 `native` 后端的组合），两条都在时以前者为准 ——
-  否则一次「浏览」会弹两次框。两条都不在时 `hasChooser` 为假，卡片不渲染该按钮；
+  否则一次「浏览」会弹两次框。两条都不在时 `hasChooser` 为假，页面不渲染该按钮；
   选择被拒时要给提示，**不吞掉 rejection**：`void browse().then(...)` 那种写法在按钮上
   表现为「点了没反应」。
-- **设置 schema 不能自己写一个「形状像」的对象**。服务本身不检查 schema 的形状，所以手写的
-  能通过 host；但浏览器要靠 `schema.toJSON()` 的 `{ uid, refs }` 信封把它重建出来渲染表单，
-  重建失败时该 namespace **没有可编辑值**（`decode` 返回 undefined，卡片只能渲染空态），
+- **设置 schema 不能自己写一个「形状像」的对象**。Cordis 与 `dsh-settings` 只按契约读它，
+  手写的能通过 host；但浏览器要靠 `schema.toJSON()` 的 `{ uid, refs }` 信封把它重建出来渲染
+  表单，重建失败时该条目**没有可编辑值**（`decode` 返回 undefined，页面只能渲染空态），
   而且没有任何报错。这就是 `@deepseek-ai/schemastery` 必须以真身出现的原因。
 - **`dsh.client` 声明了就必须有 bundle**。宿主扫描已启用的 Loader 条目并解析
   `exports['./client']`；文件缺失会让客户端激活**大声失败**（不是静默降级）。
   改 `package.json` 的 `exports` 时注意别把 `./client` 弄丢。
-- **设置写入是带 revision 的**。卡片提交时带草稿开始那一刻的 revision，被并发改动抢先会被
-  拒绝 —— 这是设计（`expectedRevision`），不是失败重试的重试。改卡片时不要图省事改成
+- **设置写入是带 revision 的**。页面提交时带草稿开始那一刻的 revision，被并发改动抢先会被
+  拒绝 —— 这是设计（`expectedRevision`），不是失败重试的重试。改页面时不要图省事改成
   「不带 revision 的 `set`」，那会静默覆盖别人的改动。
 
 ## 3. Windows 上的 git / gh

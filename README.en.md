@@ -6,7 +6,8 @@ into **every** DSH session, so one copy drives both VSCode and DSH. It can also 
 **the current user's `~/.copilot`** (the Copilot CLI's home) is included by default.
 
 The plugin only **reads** configuration and writes no workspace file; the one write path is the GUI
-card that edits the extra configuration directories, into DSH's own `$DSH_HOME/settings.yaml`.
+page that edits the extra configuration directories, into DSH's own profile configuration
+(`~/.dsh/profiles/<profile>/cordis.patch.yml`).
 
 ## Features
 
@@ -61,19 +62,20 @@ The plugin row lives in [`cordis.patch.yml`](./cordis.patch.yml); its `config` f
 
 ### Editing the paths in the Plugins page
 
-The card titled **Import Copilot Files** (in a Chinese UI, 导入 Copilot 文件) under
-**Settings → Plugins → plugin configuration** adds, edits and removes `paths`, and saves, discards
+The entry titled **Import Copilot Files** (in a Chinese UI, 导入 Copilot 文件) under
+**Settings → Plugins** adds, edits and removes `paths`, and saves, discards
 or resets to the deployment default; `maxBytes`, `scanSubdirectories`, `instructionDirs` and
 `skillDirs` stay composition-only.
 
-- What it writes is DSH's own **user settings document** (the `import-copilot-files:` section of
-  `$DSH_HOME/settings.yaml`), never a workspace file, and it is hot-reloaded; the composition
-  `config` is this layer's base, so *Reset* clears the user override. Saving is **optimistic** — the
-  card submits with the revision its draft started from, a concurrent edit is rejected with a retry
-  prompt, and the card re-reads what the host answered.
+- What it writes is **the profile's own configuration layer** — the `config.paths` of this entry in
+  `~/.dsh/profiles/<profile>/cordis.patch.yml`, the block that appears under the plugin row — never
+  a workspace file; the composition `config` is this layer's base, so *Reset* clears the user
+  override. Saving is **optimistic** — the page submits with the revision its draft started from, a
+  concurrent edit is rejected with a retry prompt, and the page re-reads what the host answered. The
+  change takes effect from the next model step.
 - *Browse* uses **whichever route the deployment can serve** (the DSH Desktop window uses its own
   Windows chooser, other compositions the host's native picker); where the deployment has no route
-  the card shows no *Browse* button and the path is typed.
+  the page shows no *Browse* button and the path is typed.
 
 ## Install
 
@@ -92,6 +94,15 @@ dsh plugin --profile desktop remove dsh-import-copilot-files            # uninst
 > The profile patch layer is **not hot-reloaded** — restart DSH after installing. Afterwards,
 > editing `.github/**` in a repository or a file under a `paths` entry takes effect **immediately**
 > (it is re-read on every model step); only editing the plugin's own source needs another restart.
+
+> [!WARNING]
+> Requires **DSH ≥ 0.1.7** (measured on Desktop 2.0.14 / dsh `0.1.7-rc.1`). That release rebuilt the
+> settings chain — a plugin's own `Config` schema is its settings document, addressed by Loader
+> entry id — and this version implements the new shape, so it is **not compatible with 0.1.5 /
+> 0.1.6** (use the previous tag there). If you installed on an older version and saved `paths`, that
+> value is stranded in `~/.dsh/settings.yaml.imported` and is not migrated automatically; how to
+> write it back into `cordis.patch.yml` is in
+> [docs/compatibility.md §3.7](./docs/compatibility.md).
 
 ### The peer-dependency warning during installation
 

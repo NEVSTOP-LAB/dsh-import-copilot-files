@@ -4,8 +4,8 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 同一份 `.github` 在 VSCode 和 DSH 里同时生效。也可以把**工作区之外**的若干配置目录一起带上，
 让一份共享规则喂给所有仓库 —— **默认就带当前用户的 `~/.copilot`**（Copilot CLI 的家目录）。
 
-插件只**读取**配置，不写工作区文件；唯一的写路径是 GUI 里那张改「额外配置目录」的卡片，
-落点是 DSH 自己的 `$DSH_HOME/settings.yaml`。
+插件只**读取**配置，不写工作区文件；唯一的写路径是 GUI 里那张改「额外配置目录」的页面，
+落点是 DSH 自己的 profile 配置（`~/.dsh/profiles/<profile>/cordis.patch.yml`）。
 
 ## 功能
 
@@ -53,15 +53,16 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 
 ### 在插件页里改路径
 
-**设置 → 插件 → 插件配置** 里标题为「导入 Copilot 文件」（英文界面 `Import Copilot Files`）的卡片
-可以逐行增删 `paths`、保存、放弃或恢复默认；`maxBytes`、`scanSubdirectories`、`instructionDirs`、
-`skillDirs` 仍只在组合配置里设。
+**设置 → 插件** 里标题为「导入 Copilot 文件」（英文界面 `Import Copilot Files`）的那一项
+可以逐行增删 `paths`、保存、放弃或恢复默认；`maxBytes`、`scanSubdirectories`、
+`instructionDirs`、`skillDirs` 仍只在组合配置里设。
 
-- 写的是 **DSH 的用户设置文档**（`$DSH_HOME/settings.yaml` 的 `import-copilot-files:` 小节），
-  不是工作区文件、热重载；组合配置是这一层的基底，「恢复默认」清掉用户覆盖。保存带草稿开始时的
-  revision（期间别处改过会被拒绝并提示重试），保存后以宿主回读确认。
+- 写的是 **profile 自己的配置层**（`~/.dsh/profiles/<profile>/cordis.patch.yml` 里本条目
+  的 `config.paths`，即插件行下面多出来的那一段），不是工作区文件；组合配置是这一层的基底，
+  「恢复默认」清掉用户覆盖。保存带草稿开始时的 revision（期间别处改过会被拒绝并提示重试），
+  保存后以宿主回读确认，改完从下一个模型步骤起生效。
 - 「浏览…」按部署**能用的那条路由**取目录（DSH Desktop 用自己的 Windows 选择框，其余组合走宿主
-  的原生选择器）；部署没有可用路由时卡片不显示该按钮，路径手填。
+  的原生选择器）；部署没有可用路由时页面不显示该按钮，路径手填。
 
 ## 安装
 
@@ -79,6 +80,14 @@ dsh plugin --profile desktop remove dsh-import-copilot-files            # 卸载
 > [!IMPORTANT]
 > profile patch 层**不热重载**，安装后要**重启 DSH**。之后改仓库里的 `.github/**` 或某个 `paths`
 > 条目下的文件都**即时生效**（每个模型步骤重新读盘），只有改插件自身源码才需要再重启。
+
+> [!WARNING]
+> 需要 **DSH ≥ 0.1.7**（实测 Desktop 2.0.14 / dsh `0.1.7-rc.1`）。该版本重做了设置这条链
+> （设置文档改为由插件自己的 `Config` schema 派生、按 Loader 条目 id 寻址），本版本按新形态
+> 实现，**不再兼容 0.1.5 / 0.1.6**（旧版本请用上一版 tag）。如果你在旧版本上装过并保存过
+> `paths`，那份值停在 `~/.dsh/settings.yaml.imported` 里、不会被自动迁移 —— 手工写回
+> `cordis.patch.yml` 的方法见
+> [docs/compatibility.md §3.7](./docs/compatibility.md)。
 
 ### 安装时那条 peer 依赖警告
 
