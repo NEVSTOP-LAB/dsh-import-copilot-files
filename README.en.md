@@ -85,7 +85,7 @@ default profile; DSH Desktop uses `--profile desktop`.
 ```sh
 dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files
 dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files#<commit-sha>  # pin a commit
-dsh plugin --profile desktop add ./dsh-import-copilot-files-0.2.0.tgz   # or the tarball from a Release
+dsh plugin --profile desktop add ./dsh-import-copilot-files-0.2.1.tgz   # or the tarball from a Release
 dsh --profile desktop --dump-config                                     # confirm the row is in the composition
 dsh plugin --profile desktop remove dsh-import-copilot-files            # uninstall
 ```
