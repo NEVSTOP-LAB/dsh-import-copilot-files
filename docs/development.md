@@ -83,9 +83,11 @@ bundle（假的 `window.__ModuleLoader__`、假的 `require`、一个 React 替�
 三条 host 接缝都可以用动态 Cordis 插件在真实会话里探针验证，不必改仓库代码：
 
 1. `agent/pre-step` —— 注册一个监听器，注入一条带
-   `source = { kind: 'plugin', plugin: 'probe', form: 'instructions' }` 的消息，
-   确认它作为 user 消息到达模型，并在 GUI 注入面板里显示成**独立条目**（来源标签取自
-   `source.plugin`）。
+   `source = { kind: 'probe', form: 'instructions', changes: [{ action: 'set', path: 'probe.md' }] }`
+   的消息，确认它作为 user 消息到达模型，并在 GUI 注入面板里显示成**独立条目**（来源标签取自
+   `source.kind`）。**`kind` 不能写成 `'plugin'`**：那是退役的 V3 包装，v4 会在写入时拒绝
+   （`format v4 message requires a producer-owned source kind`），探针会让整个 turn 失败 ——
+   见 [compatibility.md §3.8](./compatibility.md)。
 2. `skills.list({ cwd })` / `skills.get(name, { cwd })` —— 确认 provider 对该工作区返回的
    `invocation` 策略、`resourceBase` 与正文。
 3. `fs/observed` —— 确认 `actor.agent` 存在（按会话分桶的前提）。

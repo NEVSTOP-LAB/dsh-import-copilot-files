@@ -98,30 +98,51 @@ cwd 侧是项目根，`paths` 侧是该条目自身 —— 否则 `src/*.ts` 这
 指令经 `agent/pre-step` 作为一条 **user 消息**折进当前步骤的消息批次，带
 
 ```js
-source: { kind: 'plugin', plugin: 'import-copilot-files', form: 'instructions' }
+source: {
+  kind: 'import-copilot-files',   // 生产者自己的名字，见下面的格式要求
+  form: 'instructions',
+  changes: [{ action: 'set', path: '.github/copilot-instructions.md' }],
+}
 ```
 
+`kind` **必须是生产者自己的名字**，这不是标签而是**格式要求**：会话格式 **v4** 起，durable
+message 的 source 必须是 producer-owned，退役的 V3 包装 `{ kind: 'plugin', plugin: <包名> }`
+会在**写入时**被直接拒绝 —— `format v4 message requires a producer-owned source kind`，而写入
+就是这一步自己的 append，于是整个 turn 失败（2026-09-25 事故，见
+[compatibility.md §3.8](./compatibility.md)）。V3→V4 迁移会把**历史行**上的旧包装改写成
+`plugin:<包名>`，但本插件是在运行时现造消息，永远不经过迁移，所以必须自己发当前形状。
+
+`changes` 是给**客户端**用的账目：`form: 'instructions'` 走 `InstructionsBody`，而那个 body 对
+`changes` 是**全有或全无**的 —— 数组缺失或有一项读不出来就把整行降级成 opaque，而不是显示一份
+自信但不完整的文件清单。每项 `{ action, path }`，`action` 取 `set` / `replace` / `remove`
+（与 `dsh-agent-instructions` 写的是同一份契约）。
+
 客户端把这条消息渲染成一条**上下文注入**行：行标题固定为「上下文注入」（`provenance.role`
-为 `recall` 时是「跨会话召回」），行内的来源标签取自 `source.plugin`，正文与折叠摘要由
-`source.form` 决定（`KNOWN_FORMS = ['instructions','catalog','snapshot','notice','relay','recall']`，
+为 `recall` 时是「跨会话召回」），行内的来源标签取自 `source.kind`（Trajectory 的
+`contextProducer` 默认就用 `kind` 当标签），正文与折叠摘要由 `source.form` 决定
+（`KNOWN_FORMS = ['instructions','catalog','snapshot','notice','relay','recall']`，
 `form: 'instructions'` 走 `InstructionsBody`）。
 
 > **为什么不用 `ctx.systemPrompt.context`**：它的正文会被收进 `dsh-system-prompt` 那条
 > 上下文注入行（`form: 'snapshot'`，来源标签是 `@deepseek-ai/dsh-system-prompt`），看不出是
 > 哪个仓库的配置，看上去就像"根本没注入"。
-> `agent/pre-step` + `form: 'instructions'` + 自己的 `source.plugin` 才能拿到与 AGENTS.md
+> `agent/pre-step` + `form: 'instructions'` + 自己的 `source.kind` 才能拿到与 AGENTS.md
 > 同级、可辨认来源的独立行。
 
 代价是两处**内部契约**（升级时优先查，见 [compatibility.md](./compatibility.md)）：
 
 1. **注入消息的形状**。profile 本地插件 import 不到 harness 的 `node_modules`，
-   无法调用 `@deepseek-ai/dsh-llm` 的 `createUserMessage`，只能按字面复刻它的四个字段
+   无法调用 `@deepseek-ai/dsh-llm` 的 `createUserMessage`，只能按字面复刻它的字段
    `{ id, role: 'user', content, source }` 并 deep-freeze（`id` 用 `node:crypto` 的
-   `randomUUID`）。
+   `randomUUID`）。**`source` 的形状是会话格式的一部分**：v4 要求 producer-owned `kind`，
+   并要求 `form: 'instructions'` 的 `changes` 可读（见上一节），两处都由
+   `test/index.test.js` 钉住。
 2. **pre-step decision 的形状**：监听器收到 `{ agent, messages, step, signal }`，
    必须 `await next()`，再返回 `{ …decision, messages }`。
 
 两处都包在 try/catch 里：形状变了只记一条 `console.error` 并跳过注入，不会弄坏整个 turn。
+**但 source 形状不是**：那条消息会离开本插件，被 harness 在 append 时拒绝，异常发生在
+try/catch 之外 —— 这正是 §3.2 那条 v4 事故为什么表现为「整个 turn 失败」而不是「少了一行」。
 
 ### 3.3 注入顺序
 
@@ -140,7 +161,9 @@ host 平面只有**一个实例服务所有会话**，所以每个会话的 `cwd
 否则 A 会话读一个 `.ts` 会让 B 会话的 `**/*.ts` 指令误激活。
 
 内容变化时**追加**一条新注入（旧的留在历史里），文件消失时先给一条
-`Instructions removed:`，避免模型继续依据已失效的规则。
+`Instructions removed:`，避免模型继续依据已失效的规则。同一份变化也写进这条消息的
+`source.changes`（消失的是 `action: 'remove'`，新出现的是 `'set'`），因为客户端渲染的文件清单
+只认这一处，正文里的 `Instructions removed:` 只对模型说话。
 
 ### 3.5 技能注册
 
