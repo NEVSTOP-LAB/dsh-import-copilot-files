@@ -19,11 +19,16 @@
  *   `ToolExecution`, which carries `.agent`, so observations are attributed to
  *   the session that made them and never leak across sessions.
  *
- * A fourth, optional seam publishes the settings namespace behind
- * `lib/client.js`'s card, which is how the extra `paths` are edited in the GUI's
- * Plugins page. It is optional twice over: no settings provider means the plugin
- * simply runs on its composition config, and an unresolvable schemastery means
- * only the card is missing. `attachSettings` covers both.
+ * A fourth seam is the settings document behind `lib/client.js`'s settings page,
+ * which is how the extra `paths` are edited in the GUI. Since dsh `0.1.7` there
+ * is nothing to register: this plugin's own `Config` schema (see
+ * `lib/settings.js`) IS the settings document, `dsh-settings` derives its form
+ * from the volatile fields, and both halves address it by the **Loader entry id**
+ * rather than by a separately registered namespace. So the seam is the exported
+ * `Config` plus one loader event, and it degrades twice over: a deployment that
+ * composes no settings provider serves no form, and a profile that cannot resolve
+ * schemastery resolves no schema — either way the plugin still runs on its
+ * composition config, and only the settings page is missing.
  *
  * Everything a session owns — cwd, the touched-path set, and the last injected
  * rendering — is keyed by session id, because one host instance serves every
@@ -32,28 +37,33 @@
  * The injected message is built here rather than with `createUserMessage` from
  * `@deepseek-ai/dsh-llm`: a plugin installed into a profile cannot reach the
  * harness's own `node_modules`, so the four-field shape is reproduced literally.
- * That shape, the pre-step decision contract, and the settings namespace being
- * the browser card's slot key are the three internal things this plugin depends
+ * That shape, the pre-step decision contract, and the settings entry id being the
+ * browser card's namespace are the three internal things this plugin depends
  * on — docs/design.md §3.2 and §3.8 cover them, and docs/compatibility.md is the
  * upgrade checklist.
  */
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { discover, isPortableAbsolute, resolveConfiguredPath } from './lib/discover.js'
 import { matchesAny } from './lib/glob.js'
 import { parseFrontmatter } from './lib/frontmatter.js'
+import { settingsSchema } from './lib/settings.js'
 
 export const PLUGIN_NAME = 'import-copilot-files'
 
 const PROVIDER_NAME = 'import-copilot-files'
 /**
- * The runtime settings namespace. It is also the key the browser half registers
- * its card under in `settings.plugin.item`, so the two must stay identical.
+ * The Loader entry id this plugin is composed under — `cordis.patch.yml`'s
+ * `insert[].id`, which is the package name. Since dsh `0.1.7` it is ALSO the
+ * settings entry id `dsh-settings` keys the form by, and therefore the namespace
+ * the browser half claims its card under: the two halves must spell it the same
+ * way, and `npm run verify:settings` compares both against the composition file.
  */
-export const SETTINGS_NAMESPACE = 'import-copilot-files'
+export const SETTINGS_ENTRY_ID = 'dsh-import-copilot-files'
 /** A provider label; not one of the built-in project roots. */
 const SKILL_SOURCE = 'project-copilot'
 /** Between the built-in `project-dsh` (100) and `project-agents` (200) roots. */
@@ -78,6 +88,14 @@ const NOTICE_RESERVE = 128
 const TRUNCATED_SUFFIX = '\n\n[truncated]'
 const MAX_LOGGED_WARNINGS = 200
 const GITHUB_SEGMENT = '/.github/'
+/**
+ * The protocol `@deepseek-ai/cosmokit` uses for a live config reference, spelled
+ * as `createVolatile` writes it. A `.volatile()` Config field resolves to one of
+ * these instead of to a plain value, so reading a field means reading through
+ * `.get()`. Reproduced here rather than imported: this file must not depend on
+ * cosmokit, and the marker is a `Symbol.for`, i.e. shared across copies anyway.
+ */
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
 
 const INTRO =
   'The following workspace instructions come from VSCode-style configuration (.github). ' +
@@ -88,23 +106,36 @@ export default {
   inject: ['skills'],
 
   /**
+   * This plugin's Config schema, read by Cordis when the row is composed.
+   *
+   * It is a getter so that `@deepseek-ai/schemastery` stays a lazy, optional
+   * load: a checkout with no `node_modules`, or a profile that cannot resolve
+   * the package, resolves `undefined` here — the entry then has no settings form
+   * and the GUI page never claims it, while instructions and skills keep
+   * working. A schema is required for the settings page and for nothing else.
+   */
+  get Config() {
+    return resolveConfigSchema()
+  },
+
+  /**
    * @param ctx - the host context this row was composed into.
-   * @param config - optional row configuration.
+   * @param config - the row configuration, resolved through `Config`; every
+   *   volatile field on it is a live reference, read through `normalizeSettings`.
    * @param config.maxBytes - rendered-instructions budget.
    * @param config.scanSubdirectories - levels below `cwd` treated as project roots.
    * @param config.instructionDirs - `*.instructions.md` directories, relative to a configuration directory.
    * @param config.skillDirs - `<name>/SKILL.md` directories, relative to a configuration directory.
    * @param config.paths - configured paths that ARE the `.github`-equivalent directory.
    * @param options - internal seam; production callers pass nothing.
-   * @param options.loadSchema - replaces the lazy `@deepseek-ai/schemastery` load.
    * @param options.homeDir - replaces `os.homedir()` as what `~` resolves to.
    */
   apply(ctx, config, options) {
-    // The composition entry is both the settings namespace's `base` layer and
-    // the value this plugin runs on when no settings provider is mounted, so it
-    // is held as a thunk: `setSource` swaps the thunk, never a snapshot.
-    let readSettings = () => config
-    const settings = () => normalizeSettings(readSettings())
+    // The row config is the settings form's `base` layer AND what this plugin
+    // runs on with no settings provider mounted. It is read through a closure
+    // rather than snapshotted, because a committed settings change rewrites the
+    // live references inside `config` in place (see the loader event below).
+    const settings = () => normalizeSettings(config)
     // Resolved once: `~` in `paths` means the same directory for the life of the
     // row, in discovery and in the invalidation check that must agree with it.
     const home = options?.homeDir ?? homedir()
@@ -117,17 +148,13 @@ export default {
     let invalidateCatalog = null
     const loggedWarnings = new Set()
 
-    attachSettings(ctx, {
-      entry: config,
-      onSource: (next) => {
-        readSettings = next
-      },
-      // A committed change can add or remove skills, and nothing it did touched
-      // the filesystem — so no `fs/observed` signal will arrive to refresh the
-      // catalog. `paths` is exactly that kind of change.
-      onChange: () => invalidateCatalog?.(),
-      loadSchema: options?.loadSchema,
-    })
+    // A committed `paths` change arrives as a volatile config commit: the loader
+    // rewrites the running config's references in place and emits this on the
+    // entry's own fiber. Nothing it did touched the filesystem, so no
+    // `fs/observed` signal will arrive to refresh the catalog — `paths` is
+    // exactly that kind of change, and a saved path can add skills the model
+    // would otherwise never learn about.
+    ctx.on('loader/volatile-update', () => invalidateCatalog?.())
 
     const sessionFor = (id, cwd) => {
       let session = sessions.get(id)
@@ -260,54 +287,61 @@ function deepFreeze(value) {
   return value
 }
 
+/** Memoized `Config`: `undefined` means "not built yet", `null` means "not resolvable". */
+let configSchema
+
 /**
- * Register this plugin's runtime settings namespace, tolerating its absence.
+ * The one DSH package this plugin needs, loaded lazily and tolerating absence.
  *
- * Two things are deliberately optional:
+ * The schema has to be a real schemastery schema: `dsh-settings` derives the
+ * entry's form from it and the browser rebuilds that form from `schema.toJSON()`
+ * to render the page — a hand-written envelope is not rebuildable, and the
+ * namespace then silently has no editable value.
  *
- * - **The `settings` service.** `ctx.inject` runs the callback only once the
- *   service is up, and `installSection` hands back `() => entry` when the
- *   service goes away, so a deployment with no settings provider keeps running
- *   on the composition config alone.
- * - **`@deepseek-ai/schemastery`.** The schema has to be a real schemastery
- *   schema: the browser rebuilds it from `schema.toJSON()` to render the card,
- *   and a hand-written envelope is not rebuildable. Loading it lazily keeps this
- *   package's load-time imports at zero — a clone with no `node_modules` still
- *   runs `npm test` — and a profile that cannot resolve the package loses the
- *   card rather than the whole plugin.
+ * Nothing about it is load-time: `createRequire` plus a `try` keeps this
+ * package's static imports at `node:` builtins, so a clone with no
+ * `node_modules` still runs `npm test`. A profile that cannot resolve the
+ * package resolves no schema, and that costs the page rather than the plugin.
+ * The answer is memoized, including the failure.
  *
- * @param ctx - the host context the row was composed into.
- * @param options.entry - the composition config, used as the `base` layer.
- * @param options.onSource - receives the live settings getter.
- * @param options.onChange - called after every committed settings change.
- * @param options.loadSchema - schema loader; tests replace it.
+ * @returns the Config schema, or `undefined` when schemastery is unreachable.
  */
-export function attachSettings(
-  ctx,
-  { entry, onSource, onChange, loadSchema = defaultSchemaLoader },
-) {
-  // A context outside the real loader (a test double) simply has no settings.
-  if (typeof ctx.inject !== 'function') return
+function resolveConfigSchema() {
+  // `undefined` means "not built yet", `null` means "not resolvable", and the
+  // answer is memoized either way — a failed lookup is not retried per read.
+  if (configSchema === undefined) configSchema = buildConfigSchema()
+  return configSchema ?? undefined
+}
 
-  let disposed = false
-  ctx.effect?.(() => () => {
-    disposed = true
-  }, `${PROVIDER_NAME}: settings load guard`)
+/** @returns the built schema, or `null` when schemastery cannot be resolved. */
+function buildConfigSchema() {
+  try {
+    const loaded = createRequire(import.meta.url)('@deepseek-ai/schemastery')
+    // `require` of a dual build answers the namespace object; `import` answers
+    // the constructor directly. Accept both rather than assume which one ran.
+    const z = loaded?.default ?? loaded
+    return configSchemaFor(z)
+  } catch (error) {
+    console.error(
+      `[${PROVIDER_NAME}] @deepseek-ai/schemastery is not resolvable, so this entry has no settings page:`,
+      error,
+    )
+    return null
+  }
+}
 
-  ctx.inject(['settings'], (settingsCtx) => {
-    Promise.resolve()
-      .then(() => loadSchema())
-      .then((schema) => {
-        if (disposed) return
-        settingsCtx.settings.installSection(ctx, SETTINGS_NAMESPACE, schema, entry, {
-          setSource: (current) => onSource(current),
-          onChange: () => onChange?.(),
-        })
-      })
-      .catch((error) => {
-        console.error(`[${PROVIDER_NAME}] settings namespace not registered:`, error)
-      })
-  })
+/**
+ * Build this plugin's Config schema from one schemastery entry point.
+ *
+ * Split out from the resolver above so the exact object `Config` answers with —
+ * which fields, which defaults, which of them volatile — can be pinned offline,
+ * with the same recording stand-in the other settings tests use.
+ *
+ * @param z - the schemastery entry point.
+ * @returns the schema resolving this plugin's Config.
+ */
+export function configSchemaFor(z) {
+  return settingsSchema(z, SETTINGS_DEFAULTS)
 }
 
 /** The defaults the composition entry and the schema both start from. */
@@ -319,22 +353,31 @@ export const SETTINGS_DEFAULTS = {
   paths: DEFAULT_PATHS,
 }
 
-/** The one place a DSH package is imported, and only when settings exist. */
-function defaultSchemaLoader() {
-  return Promise.all([import('@deepseek-ai/schemastery'), import('./lib/settings.js')]).then(
-    ([schemastery, settings]) => settings.settingsSchema(schemastery.default, SETTINGS_DEFAULTS),
-  )
-}
-
-/** What this plugin runs on, whether it came from the composition or from settings. */
+/** What this plugin runs on: the resolved Config, wherever its values came from. */
 export function normalizeSettings(config) {
   return {
-    maxBytes: nonNegative(config?.maxBytes, DEFAULT_MAX_BYTES),
-    scanSubdirectories: nonNegative(config?.scanSubdirectories, DEFAULT_SCAN_SUBDIRECTORIES),
-    instructionDirs: stringList(config?.instructionDirs, DEFAULT_INSTRUCTION_DIRS),
-    skillDirs: stringList(config?.skillDirs, DEFAULT_SKILL_DIRS),
-    paths: [...stringList(config?.paths, DEFAULT_PATHS)],
+    maxBytes: nonNegative(live(config?.maxBytes), DEFAULT_MAX_BYTES),
+    scanSubdirectories: nonNegative(live(config?.scanSubdirectories), DEFAULT_SCAN_SUBDIRECTORIES),
+    instructionDirs: stringList(live(config?.instructionDirs), DEFAULT_INSTRUCTION_DIRS),
+    skillDirs: stringList(live(config?.skillDirs), DEFAULT_SKILL_DIRS),
+    paths: [...stringList(live(config?.paths), DEFAULT_PATHS)],
   }
+}
+
+/**
+ * The current value of a Config field.
+ *
+ * A `.volatile()` field resolves to a live reference rather than to a plain
+ * value, so the field has to be read through `.get()` every time — which is
+ * exactly what makes a committed settings change visible on the next step
+ * without re-composing the row. Everything else passes through untouched.
+ *
+ * @param field - one resolved Config field, or `undefined`.
+ * @returns the plain value behind it.
+ */
+function live(field) {
+  if (field === null || typeof field !== 'object') return field
+  return VOLATILE_WRITE in field ? field.get() : field
 }
 
 /**
