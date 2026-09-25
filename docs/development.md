@@ -158,7 +158,8 @@ npm run pack        # → dist/dsh-import-copilot-files-<version>.tgz
 `npm run check`、打包、用 `scripts/release-notes.mjs` 从 CHANGELOG 组装 Release 正文并附上
 tarball。
 
-Release 正文取自与 tag 同号的 CHANGELOG 小节，所以**先 bump 再打 tag**：仓库当前没有 tag，
-`package.json` 停在 `0.1.0`，而 `[Unreleased]` 里累积的是改名后的内容 —— 直接打 `v0.1.0` 会把
-改名前的 `## [0.1.0]` 小节发出去，打 `v0.2.0` 则因版本不一致被工作流拒绝。改动插件 id /
-设置命名空间这类对外标识后，下一次发布是 `0.2.0`。
+Release 正文取自与 tag 同号的 CHANGELOG 小节，所以**先 bump 再打 tag**，顺序反了就发不出正确
+正文：tag 先于版本号则工作流按「版本不一致」直接失败，tag 与旧版本号同号则把旧小节当成本次变更。
+小节内**第一段是 Release 正文的开场**，写清这是哪一类发布（首个 tag / 破坏性变更 / 兼容范围）。
+本节所述顺序在 `v0.2.0` 上实测通过（tag → 工作流 → Release + tarball 附件）。
+改动插件 id / 设置命名空间这类对外标识后，发布号进一位 minor —— `v0.2.0` 就是这样来的。

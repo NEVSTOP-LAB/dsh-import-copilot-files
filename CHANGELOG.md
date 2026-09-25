@@ -5,7 +5,37 @@
 `scripts/release-notes.mjs`，把与 tag 对应的 `## [<版本>]` 小节抄进 GitHub Release
 正文——所以**发版前先在这里写一节**，否则 Release 只会退化成提交列表。
 
-## [Unreleased]
+## [0.2.0] - 2026-09-25
+
+**本次发布是首个 tag**：项目已改名为 `dsh-import-copilot-files`，并适配 DSH `0.1.7`
+（会话格式 v4）；**不再兼容 dsh 0.1.5 / 0.1.6**。从旧包名升级前先移除旧包，否则同一份配置会注入两次；
+旧命名空间下保存过的 `paths` 不再被读取，请在插件页里重新确认（迁移步骤见下面的「项目改名」一条）。
+
+### 修复：注入消息的 source 形状让整个 turn 失败（dsh 0.1.7 / 会话格式 v4）
+
+- **现象**：装上本插件并重启后，用户的第一句话就失败，界面只给
+  `本轮运行失败 format v4 message requires a producer-owned source kind`；
+  禁用插件即恢复正常。
+- **根因**：注入消息的 `source` 仍是退役的 V3 包装
+  `{ kind: 'plugin', plugin: 'import-copilot-files', form: 'instructions' }`。会话格式 **v4** 起
+  durable message 的 source 必须 producer-owned，该形状会在**写入时**被 `assertV4RowAdmission`
+  拒绝（判据是 `kind` 非空且不等于字面量 `'plugin'`）。写入就是这一步自己的
+  `session.append('user/message', …)`，所以异常在插件 try/catch 之外抛出，整个 turn 无法持久化。
+  V3→V4 迁移会把**历史行**上的旧包装改写成 `plugin:<包名>`，但运行时现造的消息不经过迁移，
+  因此同一形状在 V3 会话里能活、在 V4 会话里必死。完整证据链与实测见
+  [docs/compatibility.md §3.8](./docs/compatibility.md)。
+- **修复**：`source` 改为 `{ kind: 'import-copilot-files', form: 'instructions', changes }`。
+  `changes` 由 `withRemovals` 一并算出（消失的文件为 `action: 'remove'`，新出现的为 `'set'`），
+  因为 `InstructionsBody` 对 `changes` 是全有或全无的 —— 数组缺失会把注入行降级成不透明行。
+  产物形状（`id` / `role` / `content` / `source`）不变，`deep-freeze` 不变，注入顺序不变。
+- **回归钉子**：`test/index.test.js` 断言 `kind` 非空且不等于 `'plugin'`、`plugin` 字段已消失、
+  `changes` 每项有合法 `action` 与 `path`，以及文件消失时确实产出 `remove`。
+- **新增 `npm run verify:message`**：驱动真实插件对象，把注入消息过装好的 harness 的
+  `assertV4RowAdmission` 与 `restoreReleasedV4Artifact`，并用退役形状做反例 —— 离线用例看不到
+  harness 的格式代码，这一步补上。`npm run check` 里只做语法检查（该脚本需要 harness 检出）。
+- **同一台机器上还有第二个生产者**：`dsh-approval-mode` 的审批模式播报也发
+  `{ kind: 'plugin', plugin: 'approval-mode' }`，报错文本与本插件完全一样，本仓库无法代它修复
+  （见 [docs/compatibility.md §3.8](./docs/compatibility.md)）。
 
 ### 修复：注入消息的 source 形状让整个 turn 失败（dsh 0.1.7 / 会话格式 v4）
 
@@ -124,8 +154,7 @@
   2. 旧命名空间下保存过的 `paths` **不再被读取**：`0.1.7` 起设置文档就是本条目自己的
      `config`（按 Loader 条目 id 寻址），不再有单独的命名空间。升级后请在插件页里重新确认一次
      `paths`，或按 [docs/compatibility.md §3.7](./docs/compatibility.md) 把它写进 profile 的
-     patch 层。仓库从未打过 tag、也没有 Release，npm 上没有发布过版本，所以这不来自任何已发布的
-     版本，而是 git 安装路径上已经写下的配置。
+     patch 层。这份覆盖来自 git 安装路径，不是任何已发布版本的产物 —— `0.1.0` 是改名前的形态。
   3. 若在 profile 的 patch 层按旧行 `id` 覆盖过本插件的 `config`，那份覆盖同样随行改名失效，
      需要改到新行上。
 - **文档按读者分层**（[#9](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files/issues/9)）：
