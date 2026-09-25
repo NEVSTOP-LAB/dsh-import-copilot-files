@@ -154,12 +154,17 @@ npm run pack        # → dist/dsh-import-copilot-files-<version>.tgz
 ```
 
 发版：先在 `CHANGELOG.md` 写 `## [<version>]` 小节，把 `package.json` 的 `version` 对齐，
-再打 tag 推送 `v<version>`。`.github/workflows/release.yml` 会校验两者一致、跑
-`npm run check`、打包、用 `scripts/release-notes.mjs` 从 CHANGELOG 组装 Release 正文并附上
-tarball。
+**跑 `npm run verify:notes -- --version v<version>`**，再打 tag 推送 `v<version>`。
+`.github/workflows/release.yml` 会校验两者一致、跑 `npm run check`、打包、用
+`scripts/release-notes.mjs` 从 CHANGELOG 组装 Release 正文并附上 tarball。
 
 Release 正文取自与 tag 同号的 CHANGELOG 小节，所以**先 bump 再打 tag**，顺序反了就发不出正确
 正文：tag 先于版本号则工作流按「版本不一致」直接失败，tag 与旧版本号同号则把旧小节当成本次变更。
 小节内**第一段是 Release 正文的开场**，写清这是哪一类发布（首个 tag / 破坏性变更 / 兼容范围）。
 本节所述顺序在 `v0.2.0` 上实测通过（tag → 工作流 → Release + tarball 附件）。
 改动插件 id / 设置命名空间这类对外标识后，发布号进一位 minor —— `v0.2.0` 就是这样来的。
+
+`npm run verify:notes` 组装一遍正文，检查同一 `###` 标题出现两次、混入其他版本的小节、或退化成
+提交列表 —— 这三类缺陷在 `v0.2.0` 上都发生过且没有任何报错：把修复提交 rebase 到 `main` 时，
+两边各自累积的 `[Unreleased]` 内容会被**并列保留**，于是同一段条目在 `## [<version>]` 里出现两次，
+Release 正文跟着重复。rebase 之后、写小节之前先看一遍 CHANGELOG 的标题是否重复。

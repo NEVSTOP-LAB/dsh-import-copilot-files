@@ -72,7 +72,7 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 ```sh
 dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files
 dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files#<commit-sha>  # 锁定提交
-dsh plugin --profile desktop add ./dsh-import-copilot-files-0.2.0.tgz   # 或 Release 附件里的 tarball
+dsh plugin --profile desktop add ./dsh-import-copilot-files-0.2.1.tgz   # 或 Release 附件里的 tarball
 dsh --profile desktop --dump-config                                     # 确认组合层里出现这一行
 dsh plugin --profile desktop remove dsh-import-copilot-files            # 卸载
 ```
