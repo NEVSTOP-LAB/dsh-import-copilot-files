@@ -5,7 +5,11 @@
 `scripts/release-notes.mjs`，把与 tag 对应的 `## [<版本>]` 小节抄进 GitHub Release
 正文——所以**发版前先在这里写一节**，否则 Release 只会退化成提交列表。
 
-## [Unreleased]
+## [0.2.0] - 2026-09-25
+
+**本次发布是首个 tag**：项目已改名为 `dsh-import-copilot-files`，并适配 DSH `0.1.7`
+（会话格式 v4）；**不再兼容 dsh 0.1.5 / 0.1.6**。从旧包名升级前先移除旧包，否则同一份配置会注入两次；
+旧命名空间下保存过的 `paths` 不再被读取，请在插件页里重新确认（迁移步骤见下面的「项目改名」一条）。
 
 ### 修复：注入消息的 source 形状让整个 turn 失败（dsh 0.1.7 / 会话格式 v4）
 
@@ -124,8 +128,7 @@
   2. 旧命名空间下保存过的 `paths` **不再被读取**：`0.1.7` 起设置文档就是本条目自己的
      `config`（按 Loader 条目 id 寻址），不再有单独的命名空间。升级后请在插件页里重新确认一次
      `paths`，或按 [docs/compatibility.md §3.7](./docs/compatibility.md) 把它写进 profile 的
-     patch 层。仓库从未打过 tag、也没有 Release，npm 上没有发布过版本，所以这不来自任何已发布的
-     版本，而是 git 安装路径上已经写下的配置。
+     patch 层。这份覆盖来自 git 安装路径，不是任何已发布版本的产物 —— `0.1.0` 是改名前的形态。
   3. 若在 profile 的 patch 层按旧行 `id` 覆盖过本插件的 `config`，那份覆盖同样随行改名失效，
      需要改到新行上。
 - **文档按读者分层**（[#9](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files/issues/9)）：
