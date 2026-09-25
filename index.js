@@ -36,11 +36,12 @@
  *
  * The injected message is built here rather than with `createUserMessage` from
  * `@deepseek-ai/dsh-llm`: a plugin installed into a profile cannot reach the
- * harness's own `node_modules`, so the four-field shape is reproduced literally.
- * That shape, the pre-step decision contract, and the settings entry id being the
- * browser card's namespace are the three internal things this plugin depends
- * on — docs/design.md §3.2 and §3.8 cover them, and docs/compatibility.md is the
- * upgrade checklist.
+ * harness's own `node_modules`, so the shape is reproduced literally — including
+ * the producer-owned `source.kind` that session format v4 requires of a durable
+ * message (see `injectionMessage`). That shape, the pre-step decision contract,
+ * and the settings entry id being the browser card's namespace are the three
+ * internal things this plugin depends on — docs/design.md §3.2 and §3.8 cover
+ * them, and docs/compatibility.md is the upgrade checklist.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -180,8 +181,8 @@ export default {
         const session = sessionFor(String(payload.agent.id), payload.agent.session?.header?.cwd)
         const current = settings()
         const rendered = renderInstructions(session, current, home)
-        const text = withRemovals(rendered, session, current.maxBytes)
-        if (text === null) return decision
+        const injected = withRemovals(rendered, session, current.maxBytes)
+        if (injected === null) return decision
 
         // Append rather than splice after the claimed messages.
         //
@@ -191,7 +192,7 @@ export default {
         // `dsh-agent-instructions`, which made the `.github` rules land ahead of
         // AGENTS.md. Appending makes the order independent of registration order:
         // AGENTS.md first, then this.
-        const entered = [...decision.messages, injectionMessage(text)]
+        const entered = [...decision.messages, injectionMessage(injected.text, injected.changes)]
         session.injectedText = rendered.text
         session.injectedPaths = rendered.paths
         return { ...decision, messages: entered }
@@ -264,18 +265,46 @@ export default {
 }
 
 /**
+ * The `source.kind` this plugin stamps on its injected message.
+ *
+ * It is the producer's own name, and that is a **format requirement**, not a
+ * label: since session format **v4** a durable message source must be
+ * producer-owned, and the retired V3 wrapper
+ * `{ kind: 'plugin', plugin: <pkg> }` is refused outright at write time with
+ * `format v4 message requires a producer-owned source kind` — which surfaces as
+ * a failed turn, because the step cannot be persisted.
+ *
+ * The V3→V4 migration rewrites the old wrapper on historical rows, deriving
+ * `plugin:<pkg>` for anything it does not know; a message built here at run time
+ * never passes through it, so this plugin has to emit the current shape itself.
+ * `plugin:<pkg>` is what that migration would produce for this package, and
+ * `PLUGIN_NAME` is equivalent for admission; the plain name is used so the
+ * Trajectory panel's producer label (`kind` is its default label) reads as the
+ * plugin rather than as a migration artefact.
+ */
+const SOURCE_KIND = PLUGIN_NAME
+
+/**
  * Build the user-role injection message.
  *
  * Mirrors `createUserMessage` from `@deepseek-ai/dsh-llm`, which a profile-local
- * plugin cannot import. `source.form = 'instructions'` is what the client uses to
- * present this as an instruction injection rather than an opaque context row.
+ * plugin cannot import. Two fields are load-bearing beyond admission:
+ *
+ * - `source.form = 'instructions'` picks the client's `InstructionsBody`.
+ * - `source.changes` is what that body lists — it is **all-or-nothing** there, so
+ *   an absent or unreadable list degrades the row to an opaque one instead of
+ *   showing a confident, incomplete file list. Each entry is `{ action, path }`,
+ *   the same contract `dsh-agent-instructions` writes.
+ *
+ * @param text - the rendered instruction block for this step.
+ * @param changes - `{ action, path }` per file this step set or removed.
  */
-function injectionMessage(text) {
+function injectionMessage(text, changes) {
   return deepFreeze({
     id: randomUUID(),
     role: 'user',
     content: [{ type: 'text', text }],
-    source: { kind: 'plugin', plugin: PLUGIN_NAME, form: 'instructions' },
+    source: { kind: SOURCE_KIND, form: 'instructions', changes },
   })
 }
 
@@ -386,6 +415,14 @@ function live(field) {
  * A changed rendering produces a new message — the previous one stays in history,
  * so paths that disappeared get an explicit removal notice rather than being
  * silently dropped.
+ *
+ * @param rendered - this step's rendering: `{ text, paths }`.
+ * @param session - per-session state; `injectedPaths` is the previously injected set.
+ * @param maxBytes - rendered-instructions budget.
+ * @returns `{ text, changes }` to inject, or `null` when nothing changed.
+ *   `changes` is the source-level account the client's instruction body renders:
+ *   one `{ action: 'remove' }` per path that disappeared and one
+ *   `{ action: 'set' }` per path in this render.
  */
 function withRemovals(rendered, session, maxBytes) {
   const removed = [...session.injectedPaths].filter((path) => !rendered.paths.has(path))
@@ -397,7 +434,14 @@ function withRemovals(rendered, session, maxBytes) {
     parts.push(`Instructions removed:\n${removed.map((path) => `- ${sanitize(path)}`).join('\n')}`)
   }
   if (rendered.text !== '') parts.push(rendered.text)
-  return truncateUtf8(parts.join('\n\n'), maxBytes)
+
+  const changes = [
+    ...removed.map((path) => ({ action: 'remove', path })),
+    ...[...rendered.paths]
+      .filter((path) => !session.injectedPaths.has(path))
+      .map((path) => ({ action: 'set', path })),
+  ]
+  return { text: truncateUtf8(parts.join('\n\n'), maxBytes), changes }
 }
 
 function renderInstructions(session, settings, home) {

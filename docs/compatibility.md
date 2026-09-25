@@ -78,11 +78,16 @@ dsh `0.1.5-rc.2`）保留在 §3.1–§3.5 里，因为那三个 host 接缝到 
    `inject` 里放一个不存在的服务名不会报错，插件 fiber 会**永远停在 pending**，而客户端启动
    报告把它算作「插件加载失败」，Desktop 于是进恢复界面/安全模式。可选服务只能放在
    **嵌套的 `ctx.inject([...], cb)`** 里，或干脆用 `ctx.get(name)`。
-4. 注入消息的四个字段（`id` / `role` / `content` / `source`）与 pre-step decision 的形状
+4. 注入消息的 `source` 形状（**格式的一部分，不只是接缝**）：v4 起 durable message 的
+   `source.kind` 必须 producer-owned，非空且不等于字面量 `'plugin'`；退役的 V3 包装
+   `{ kind: 'plugin', plugin: <包名> }` 会在**写入时**被拒（§3.8）。
+   `form: 'instructions'` 另需可读的 `changes: [{ action, path }]`，否则客户端把该行降级为 opaque。
+   注入消息的其余四个字段（`id` / `role` / `content` / `source`）与 pre-step decision 的形状
    （`await next()` 之后返回 `{ …decision, messages }`）—— 对照
    `@deepseek-ai/dsh-llm/lib/types/message.js` 的 `createUserMessage`。
 5. 注入行的渲染：`dsh-client-ui-chat` 的 `ContextInjectionRow` 用 `contextProvenance` 固定行标题
-   （`role: 'recall'` 为「跨会话召回」，其余为「上下文注入」）与来源标签（`source.plugin`），
+   （`role: 'recall'` 为「跨会话召回」，其余为「上下文注入」）与来源标签（Trajectory 侧
+   `contextProducer` 默认取 `source.kind`；`source.plugin` 是 v4 之前的写法），
    `source.form` 经 `contextBody(form)` 决定正文形态，合法值取自 `KNOWN_FORMS`；
    `dsh-client-ui-trajectory` 另有自己的 `contextProvenance` / `KNOWN_FORMS`，上下文条目按
    `kind.context` 标成「上下文」。
@@ -96,7 +101,9 @@ dsh `0.1.5-rc.2`）保留在 §3.1–§3.5 里，因为那三个 host 接缝到 
 8. 卡片的目录选择：`uiWorkspace.pickDirectory()` 还在不在，以及 win32 的 DSH Desktop
    profile 是否仍然禁用 `dsh-host-directory-picker-auto`（改挂 `browse` 后端时
    `pick` 会被 Remote 拒绝）、`window.__DSH_DESKTOP_PICK_DIRECTORY__` 是否仍被安装。
-9. 先跑 `npm run check` 排除自己的逻辑回归。
+9. 先跑 `npm run check` 排除自己的逻辑回归；改过注入消息或升级 harness 之后，再跑
+   `npm run verify:message` —— 它用**装好的** harness 判 `source` 形状，`npm run check` 看不到
+   这一层（见 §3.8）。
 
 ## 3. 验证记录
 
@@ -104,7 +111,7 @@ dsh `0.1.5-rc.2`）保留在 §3.1–§3.5 里，因为那三个 host 接缝到 
 
 | 接缝 | 结论 |
 | --- | --- |
-| `agent/pre-step` | 注入的 `form: 'instructions'` 消息确实到达模型，GUI 显示为独立一行，来源标签取自 `source.plugin`（行标题由客户端固定为「上下文注入」，2026-09-20 在 Desktop 2.0.13 上复核） |
+| `agent/pre-step` | 注入的 `form: 'instructions'` 消息确实到达模型，GUI 显示为独立一行，来源标签取自 `source.kind`（v4 之前是 `source.plugin`；行标题由客户端固定为「上下文注入」，2026-09-20 在 Desktop 2.0.13 上复核，2026-09-25 按 v4 改正，见 §3.8） |
 | `skills.registerProvider` | `list({ cwd })` 收到真实 cwd；`get()` 返回正文与 `resourceBase`；`invocation` 策略与 frontmatter 一致 |
 | `fs/observed` | `actor` 是 `ToolExecution`，携带 `.agent`（`id` 与 `session.header.cwd`），可按会话分桶 |
 
@@ -121,8 +128,8 @@ dsh `0.1.5-rc.2`）保留在 §3.1–§3.5 里，因为那三个 host 接缝到 
 
 ### 3.3 离线
 
-`npm run check`：9 个文件的 `node --check` + 126 项 `node:test`（glob 9 / frontmatter 9 /
-discover 37 / 插件 43 / 设置 9 / 客户端 bundle 19）。
+`npm run check`：9 个文件的 `node --check` + 129 项 `node:test`（glob 9 / frontmatter 9 /
+discover 37 / 插件 46 / 设置 9 / 客户端 bundle 19）。
 `test/index.test.js` 对着假 Cordis 上下文驱动真实插件对象，覆盖注入顺序、跨会话隔离、
 预算边界、`applyTo` 正反例、移除通知、`paths`、默认的 `~/.copilot` 条目（含关掉它），
 以及**volatile Config → 发现流程**这条端到端链路（含 schema 解析不到、配置是普通对象时的
@@ -168,6 +175,7 @@ discover 37 / 插件 43 / 设置 9 / 客户端 bundle 19）。
 | 2026-09-20 | Desktop 2.0.13 / dsh 0.1.5-rc.2 | 「安装时那条 peer 警告」定位：在 `~/.dsh/profiles/desktop` 上 `pnpm peers check --lockfile-only --json`，`missing` 全是 `@xxxyz/dsh-mcp-manager`、`dsh-approval-mode`、`dsh-context`、`dshmarket` 的缺项，本插件不在其中；补上四个 optional peer 后，在含本插件的 lockfile 上同一命令得到 `missing: {}`、退 0 |
 | 2026-09-21 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 设置与卡片这条链**读实现**核对（`installSection` 签名与 hooks、namespace 文法、schema 必须可被浏览器重建、卡片按 namespace 派发、`dsh.client` 的解析与 bundle 缺失时的失败方式、客户端 scope 的 `bind`/`mutate` 形状） |
 | 2026-09-25 | Desktop 2.0.14 / dsh 0.1.7-rc.1 | 上一行的**全部结论作废**：`installSection` / `settingsScope` / `settings.plugin.item` 三处都已移除或改名。事故、根因、现场证据与新形态见 §3.6；新形态的全部检查见 §3.4 |
+| 2026-09-25 | Desktop 2.0.14 / dsh 0.1.7-rc.1 | 第二次事故：注入消息的 `source.kind` 还是退役的 V3 包装，v4 在写入时拒绝，整个 turn 失败。根因、实测对照与修复见 §3.8；`source` 形状自此是**格式契约**，不再是「接缝」 |
 
 ### 3.6 事故与根因：客户端启动失败 → 安全模式（2026-09-25）
 
@@ -243,12 +251,76 @@ Loader 条目 id**，并且只带了三条别名（`ui-developer-tools` / `ui-on
 从未被迁进 profile patch，`~/.dsh/profiles/desktop/cordis.patch.yml` 里只有一行
 `- id: dsh-import-copilot-files` + `disabled: false`，没有 `config`。
 
+### 3.8 事故与根因：注入行让整个 turn 失败（2026-09-25，v4 source kind）
+
+**现象。** 装上本插件并重启之后，用户的第一句话就失败，界面只给一句
+`本轮运行失败 format v4 message requires a producer-owned source kind`。禁用插件即恢复正常。
+
+**链路。** 本插件经 `agent/pre-step` 注入的 user 消息，其 `source` 写的是退役的 V3 包装：
+
+```js
+source: { kind: 'plugin', plugin: 'import-copilot-files', form: 'instructions' }   // 旧
+```
+
+消费这条 decision 的 `dsh-agent-loop` 会把它 append 成一条 durable event
+（`session.append('user/message', message, { surfaceOp: 'append' })`）。v4 编解码器在写盘前跑
+`assertV4RowAdmission` → `assertV4SourceRowAdmission` → `source()`：
+
+```js
+if (!isSessionFormatJsonObject(value) || typeof value["kind"] !== "string"
+    || value["kind"].length === 0 || value["kind"] === "plugin")
+  throw new SessionFormatError("format v4 message requires a producer-owned source kind");
+```
+
+命中即抛 `SessionFormatError`。它**不是**可恢复的尾部截断（`readDecodedJsonlSource` 明确
+`error instanceof SessionFormatError` 直接上抛），于是这一步无法持久化，整个 turn 报错。
+本插件自己的 try/catch 拦不住：异常发生在监听器把 decision 交还之后。
+
+**为什么迁移救不了它。** V3→V4 迁移确实认识这个包装 —— `rewriteV3MessageSource` 把
+`kind: 'plugin'` 改写成 `producerKind(plugin)`，对不在 `RENAMED_PRODUCERS` /
+`RELEASED_SAME_NAME_PRODUCERS` 里的包名给出 `plugin:<包名>`。但那只作用于**已存在的历史行**；
+本插件的消息是运行时现造的，永远不经过迁移。所以同一形状在 V3 会话里能活、在 V4 会话里必死。
+
+**实测证据**（对着装好的 harness 跑，不是复刻判据）：
+
+| 输入 | `assertV4RowAdmission` | 完整 artifact 恢复 |
+| --- | --- | --- |
+| `{ kind: 'plugin', plugin: 'import-copilot-files', form }` | **拒绝**：`format v4 message requires a producer-owned source kind` | — |
+| `{ kind: 'plugin:import-copilot-files', form }` | 通过 | — |
+| `{ kind: 'import-copilot-files', form, changes: [...] }`（现行） | 通过 | 通过，`kind` / `changes` / 正文逐字保留 |
+
+会话日志侧一致：4 份 v4 会话逐行扫描，坏 `source` 一行都没有 —— 那条消息从未落盘。
+
+**修复。** `source` 改为 `{ kind: 'import-copilot-files', form: 'instructions', changes }`，
+`changes` 由 `withRemovals` 一并算出（消失的文件是 `action: 'remove'`，新出现的是 `'set'`），
+因为 `InstructionsBody` 对 `changes` 是全有或全无的：数组缺失会把注入行降级成 opaque 行。
+回归钉子：`test/index.test.js` 断言 `kind` 非空且不等于 `'plugin'`、`plugin` 字段已消失、
+`changes` 每项都有合法 `action` 与 `path`，以及文件消失时确实产出 `remove`。
+
+**验证复现**（对着装好的 harness，不需要真实会话、不需要跑着的 DSH）：
+`npm run verify:message`（`scripts/verify-v4-message-source.mjs`）驱动真实插件对象，把产出的消息过
+`assertV4RowAdmission` 与 `restoreReleasedV4Artifact`，并用退役形状做一次反例 —— 反例若被放行，
+脚本自己判失败。默认指向本机的 DSH Desktop 安装，别的机器用 `DSH_APP=<resources/app 或 harness 检出>`。
+
+**同站点的第二个生产者（未修，不在本仓库）。** `dsh-approval-mode` 的 `notify()` 也用同一形状：
+
+```js
+agent.inject(createUserMessage({ content: [...], source: { kind: 'plugin', plugin: 'approval-mode' } }))
+```
+
+`agent.inject` 只是把消息投进 inbox，等下一次 pre-step 折进批次时才被 append —— 所以它自己那圈
+`try/catch` **拦不住**随后的写入失败，同一个 `format v4 message requires a producer-owned source kind`
+仍会让那个 turn 失败。诊断这类报错时先看是哪一条消息：字符串完全相同，区分不了生产者。
+
 ## 4. 还没实测的部分（做完请划掉）
 
 这些是在运行中的 DSH 里**没有**跑过的，代码按实现写，但没到「看见它工作」的程度：
 
 - [ ] 卡片真的出现在 **设置 → 插件**里（要重装插件 + 重启 DSH，见 [development.md §2.3](./development.md)）。
-  当前 profile 里插件处于 `desktopDeselectedBundles`，本轮没有重启验证——原因见该节。
+  2026-09-25 两次事故期间该条目先后被 `desktopDeselectedBundles` 排除，本轮没有在启用状态下重启验证。
+- [ ] **§3.8 的修复在真实会话里跑通**：重装 + 重启后，第一句话不再失败，且 GUI 里出现本插件的
+  注入行（行标题「上下文注入」，来源标签 `import-copilot-files`，正文列出 `changes` 里的文件）。
+  离线侧已用装好的 harness 验证到准入与 artifact 恢复（§3.8），差的是「在跑着的 DSH 里看见它」。
 - [ ] 展开后的卡片样式与同页其他插件一致（行编辑器的 token 取自主题服务，但没有与真实 GUI 逐像素比对）。
 - [ ] 「浏览…」在 DSH Desktop 窗口里弹出 Windows 选择框并填回该行；两条路由都不存在的部署
   不渲染该按钮（手填路径），路由存在但拒绝选择时显示提示而不是无反应。

@@ -145,10 +145,67 @@ test('the injection is a user message the client labels as an instruction form',
   assert.equal(message.role, 'user')
   assert.equal(typeof message.id, 'string')
   assert.equal(message.content[0].type, 'text')
-  assert.equal(message.source.kind, 'plugin')
-  assert.equal(message.source.plugin, 'import-copilot-files')
+  assert.equal(message.source.kind, 'import-copilot-files')
   assert.equal(message.source.form, 'instructions')
   assert.ok(Object.isFrozen(message), 'the message must be frozen like a created message')
+})
+
+test('the injection source is the producer-owned shape session format v4 admits', async () => {
+  // Regression: `{ kind: 'plugin', plugin: <pkg> }` is the retired V3 wrapper.
+  // A v4 session refuses it at write time with `format v4 message requires a
+  // producer-owned source kind`, and because the write is the step's own append
+  // the whole turn fails — which is exactly what shipped. The rule the writer
+  // applies is: `kind` is a nonempty string and is not the literal 'plugin'.
+  const message = (await mount().inject()).messages[0]
+  const { kind } = message.source
+  assert.equal(typeof kind, 'string')
+  assert.notEqual(kind, '')
+  assert.notEqual(kind, 'plugin', 'the retired V3 wrapper kind is refused by format v4')
+  assert.equal('plugin' in message.source, false, 'the retired `plugin` field must be gone')
+
+  // `form: 'instructions'` is what picks the client's InstructionsBody, and that
+  // body is all-or-nothing over `changes` — an unreadable list renders the row
+  // opaque instead. Both halves are therefore part of the contract.
+  assert.equal(message.source.form, 'instructions')
+  assert.ok(Array.isArray(message.source.changes))
+  assert.ok(message.source.changes.length > 0, 'the injected row must account for its files')
+  for (const change of message.source.changes) {
+    assert.ok(['set', 'replace', 'remove'].includes(change.action))
+    assert.equal(typeof change.path, 'string')
+    assert.notEqual(change.path, '')
+  }
+})
+
+test('an injected change names each file this step set', async () => {
+  const decision = await mount().inject()
+  assert.deepEqual(decision.messages[0].source.changes, [
+    { action: 'set', path: '.github/copilot-instructions.md' },
+    { action: 'set', path: '.github/instructions/always.instructions.md' },
+    { action: 'set', path: 'child-repo/.github/copilot-instructions.md' },
+  ])
+})
+
+test('a disappearing file is reported in `changes` as a removal', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'copilot-ai-config-'))
+  try {
+    mkdirSync(join(root, '.github', 'instructions'), { recursive: true })
+    const file = join(root, '.github', 'instructions', 'temporary.instructions.md')
+    writeFileSync(file, 'MARKER-ONE: a temporary rule.')
+
+    const session = mount(root)
+    const first = await session.inject()
+    assert.deepEqual(first.messages[0].source.changes, [
+      { action: 'set', path: '.github/instructions/temporary.instructions.md' },
+    ])
+
+    rmSync(file)
+    const second = await session.inject()
+    assert.deepEqual(second.messages[0].source.changes, [
+      { action: 'remove', path: '.github/instructions/temporary.instructions.md' },
+    ])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('the injection lands after the messages this step already claimed', async () => {
@@ -175,8 +232,8 @@ test('AGENTS.md is injected first and the .github rules follow it', async () => 
 
   const decision = await session.inject(session.agent, claimed, [agentsMd])
   assert.deepEqual(
-    decision.messages.map((message) => message.source?.plugin ?? message.id),
-    ['user-1', 'agents-md', 'import-copilot-files'],
+    decision.messages.map((message) => message.source?.kind ?? message.id),
+    ['user-1', 'agent-instructions', 'import-copilot-files'],
   )
 })
 

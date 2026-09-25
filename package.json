@@ -62,8 +62,9 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "check": "node --check index.js && node --check lib/discover.js && node --check lib/frontmatter.js && node --check lib/glob.js && node --check lib/settings.js && node --check lib/client.js && node --check scripts/pack.mjs && node --check scripts/release-notes.mjs && node --check scripts/verify-settings-schema.mjs && npm test",
+    "check": "node --check index.js && node --check lib/discover.js && node --check lib/frontmatter.js && node --check lib/glob.js && node --check lib/settings.js && node --check lib/client.js && node --check scripts/pack.mjs && node --check scripts/release-notes.mjs && node --check scripts/verify-settings-schema.mjs && node --check scripts/verify-v4-message-source.mjs && npm test",
     "verify:settings": "node scripts/verify-settings-schema.mjs",
+    "verify:message": "node scripts/verify-v4-message-source.mjs",
     "pack": "node scripts/pack.mjs"
   }
 }
