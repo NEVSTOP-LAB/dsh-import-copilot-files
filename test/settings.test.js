@@ -25,8 +25,11 @@ const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
  *
  * `meta.volatile` is the shape `dsh-settings` actually reads (`volatileForm`,
  * `isVolatilePath`), so the stand-in mirrors that rather than inventing one.
+ * `viaExtra` drops `.volatile()` and keeps only `.extra(key, value)` — the
+ * generic setter schemastery implements `.volatile()` with, and what an older
+ * copy of the package offers instead.
  */
-function recordingZ() {
+function recordingZ({ viaExtra = false } = {}) {
   const calls = []
   const leaf = (kind) => {
     const node = { kind, meta: {}, defaults: [] }
@@ -34,10 +37,18 @@ function recordingZ() {
       node.defaults.push(value)
       return node
     }
-    node.volatile = () => {
-      node.meta.volatile = true
-      calls.push({ kind: 'volatile', field: node })
-      return node
+    if (viaExtra) {
+      node.extra = (key, value) => {
+        node.meta[key] = value
+        calls.push({ kind: 'extra', key, value, field: node })
+        return node
+      }
+    } else {
+      node.volatile = () => {
+        node.meta.volatile = true
+        calls.push({ kind: 'volatile', field: node })
+        return node
+      }
     }
     calls.push(node)
     return node
@@ -56,10 +67,18 @@ function recordingZ() {
         node.defaults.push(value)
         return node
       }
-      node.volatile = () => {
-        node.meta.volatile = true
-        calls.push({ kind: 'volatile', field: node })
-        return node
+      if (viaExtra) {
+        node.extra = (key, value) => {
+          node.meta[key] = value
+          calls.push({ kind: 'extra', key, value, field: node })
+          return node
+        }
+      } else {
+        node.volatile = () => {
+          node.meta.volatile = true
+          calls.push({ kind: 'volatile', field: node })
+          return node
+        }
       }
       calls.push(node)
       return node
@@ -115,6 +134,23 @@ test('paths is the only volatile field, because it is the only editable one', ()
     assert.notEqual(schema.dict[field].meta.volatile, true, `${field} must stay composition-only`)
   }
   assert.equal(calls.filter((call) => call.kind === 'volatile').length, 1)
+})
+
+test('a schemastery without .volatile() marks paths through .extra() instead', () => {
+  // A profile resolves whichever `@deepseek-ai/schemastery` copy its own
+  // `node_modules` holds, and `3.18.2` has no `.volatile()` — the build would
+  // throw there, taking the whole Config with it and with it the page. The
+  // marker it writes is the same `meta.volatile` the host reads.
+  const { z, calls } = recordingZ({ viaExtra: true })
+  const schema = configSchemaFor(z)
+  assert.equal(schema.dict.paths.meta.volatile, true)
+  for (const field of ['maxBytes', 'scanSubdirectories', 'instructionDirs', 'skillDirs']) {
+    assert.notEqual(schema.dict[field].meta.volatile, true, `${field} must stay composition-only`)
+  }
+  assert.deepEqual(
+    calls.filter((call) => call.kind === 'extra').map((call) => [call.key, call.value]),
+    [['volatile', true]],
+  )
 })
 
 test('Config is a real schema when schemastery resolves, and absent when it does not', () => {

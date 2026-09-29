@@ -96,7 +96,7 @@ dsh plugin --profile desktop remove dsh-import-copilot-files            # uninst
 > (it is re-read on every model step); only editing the plugin's own source needs another restart.
 
 > [!WARNING]
-> Requires **DSH ≥ 0.1.7** (measured on Desktop 2.0.14 / dsh `0.1.7-rc.1`). That release rebuilt the
+> Requires **DSH ≥ 0.1.7** (measured on Desktop 2.0.16 / dsh `0.2.0-rc.1`). That release rebuilt the
 > settings chain — a plugin's own `Config` schema is its settings document, addressed by Loader
 > entry id — and this version implements the new shape, so it is **not compatible with 0.1.5 /
 > 0.1.6** (use the previous tag there). If you installed on an older version and saved `paths`, that

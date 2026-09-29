@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "导入 Copilot 文件",
+    "description": "把工作区以外的 VSCode AI 配置也加载进来"
+  }
+}

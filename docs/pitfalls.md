@@ -73,9 +73,12 @@
   （`npm run verify:settings` 逐份比对）。`0.1.7` 之前这里曾是「slot key = 设置 namespace」，
   那个 namespace 已经不存在了。
 - **`Config` 的 volatile 标记决定页面里能看到什么。** `dsh-settings` 的 `volatileForm` 只投影
-  `.volatile()` 字段，`write` 又用 `validatePaths` 拒绝非 volatile 路径：多标一个字段，
+  带 `meta.volatile` 的字段，`write` 又用 `validatePaths` 拒绝非 volatile 路径：多标一个字段，
   GUI 就能改那本该只在组合配置里的旋钮；一个都不标，该条目**没有任何表单**，页面永远不注册。
-  本插件只标 `paths`。另外 volatile 字段解析出来是**活引用**（`{ get(), [Symbol.for(
+  本插件只标 `paths`，标记由 `volatile(field)` 落：`.volatile()` 不是每份 schemastery 都有
+  （profile 就近解析到的那份可能就是没有它的 `3.18.2`），此时用等价的 `.extra('volatile', true)`；
+  直接调 `.volatile()` 会让 `Config` 建不出来、页面静默消失（[compatibility.md §3.9](./compatibility.md)）。
+  另外 volatile 字段解析出来是**活引用**（`{ get(), [Symbol.for(
   'cosmokit.volatile.write')] }`），`normalizeSettings` 必须每次读 `.get()`，把 config 快照
   一次就等于把改动冻住。
 - **「浏览…」不能只走一条路由**。win32 的 DSH Desktop profile 禁用了
@@ -93,6 +96,11 @@
 - **`dsh.client` 声明了就必须有 bundle**。宿主扫描已启用的 Loader 条目并解析
   `exports['./client']`；文件缺失会让客户端激活**大声失败**（不是静默降级）。
   改 `package.json` 的 `exports` 时注意别把 `./client` 弄丢。
+- **图标与文案也走包自己的 `exports`，但失败是静默的**。host 的 `readPluginMeta` 把
+  `<包名>/locale/en.json` 当子路径解析、把清单里的 `icon` 当相对文件读；两者不进 `files`
+  就随 `npm pack` 丢掉，而后果只是回落到面板默认插画与清单的 `name` / `description`，
+  没有报错。清单因此声明 `./locale/*.json` 导出、把 `icon.svg` 与 `locale/*.json` 写进
+  `files`；`npm run verify:meta` 与 `test/display-metadata.test.js` 盯这一层。
 - **设置写入是带 revision 的**。页面提交时带草稿开始那一刻的 revision，被并发改动抢先会被
   拒绝 —— 这是设计（`expectedRevision`），不是失败重试的重试。改页面时不要图省事改成
   「不带 revision 的 `set`」，那会静默覆盖别人的改动。

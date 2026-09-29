@@ -15,14 +15,18 @@
   "license": "MIT",
   "type": "module",
   "main": "index.js",
+  "icon": "./icon.svg",
   "exports": {
     ".": "./index.js",
     "./client": "./lib/client.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "index.js",
     "lib/",
+    "icon.svg",
+    "locale/*.json",
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
@@ -42,8 +46,8 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-settings": ">=0.1.7-rc.1 <0.2.0",
-    "@deepseek-ai/schemastery": "^3.18.4",
+    "@deepseek-ai/dsh-settings": ">=0.1.7-rc.1 <0.3.0",
+    "@deepseek-ai/schemastery": ">=3.18.2 <4.0.0",
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
@@ -62,8 +66,9 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "check": "node --check index.js && node --check lib/discover.js && node --check lib/frontmatter.js && node --check lib/glob.js && node --check lib/settings.js && node --check lib/client.js && node --check scripts/pack.mjs && node --check scripts/release-notes.mjs && node --check scripts/verify-settings-schema.mjs && node --check scripts/verify-v4-message-source.mjs && node --check scripts/verify-release-notes.mjs && npm test",
+    "check": "node --check index.js && node --check lib/discover.js && node --check lib/frontmatter.js && node --check lib/glob.js && node --check lib/settings.js && node --check lib/client.js && node --check scripts/pack.mjs && node --check scripts/release-notes.mjs && node --check scripts/verify-settings-schema.mjs && node --check scripts/verify-plugin-meta.mjs && node --check scripts/verify-v4-message-source.mjs && node --check scripts/verify-release-notes.mjs && npm test",
     "verify:settings": "node scripts/verify-settings-schema.mjs",
+    "verify:meta": "node scripts/verify-plugin-meta.mjs",
     "verify:message": "node scripts/verify-v4-message-source.mjs",
     "verify:notes": "node scripts/verify-release-notes.mjs",
     "pack": "node scripts/pack.mjs"

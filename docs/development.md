@@ -11,6 +11,8 @@ dsh-import-copilot-files/
 ├── docs/                # 维护者文档：design / development / compatibility / pitfalls
 ├── package.json         # bundle manifest（dsh.bundle.patch）与 client manifest（dsh.client）
 ├── cordis.patch.yml     # 组合层：插入插件行
+├── icon.svg             # 插件页那一行/卡片的图标（清单的 icon 指向它）
+├── locale/              # 同一行的双语标题与说明（en.json / zh.json 的 meta）
 ├── index.js             # 插件入口：指令注入 + skill provider + fs/observed + Config（GUI 里那行叫「上下文注入」）
 ├── lib/
 │   ├── discover.js      # 扫描配置目录，产出 instructions 与 skills
@@ -21,7 +23,8 @@ dsh-import-copilot-files/
 ├── scripts/
 │   ├── release-notes.mjs # 由 CHANGELOG 组装 Release 正文（零依赖）
 │   ├── pack.mjs          # 跨平台打包（npm pack → dist/）
-│   └── verify-settings-schema.mjs # 拿真实 schemastery 复核设置链（§3）
+│   ├── verify-settings-schema.mjs # 拿真实 schemastery 复核设置链（§3）
+│   └── verify-plugin-meta.mjs     # 拿装好的 readPluginMeta 复核图标与文案（§5）
 └── test/
     ├── *.test.js        # node:test
     └── fixtures/        # 假的 repo 结构，供测试与手工验证
@@ -51,6 +54,9 @@ node --check lib/client.js
 node --check scripts/pack.mjs
 node --check scripts/release-notes.mjs
 node --check scripts/verify-settings-schema.mjs
+node --check scripts/verify-plugin-meta.mjs
+node --check scripts/verify-v4-message-source.mjs
+node --check scripts/verify-release-notes.mjs
 npm test          # node --test test/*.test.js
 ```
 
@@ -103,9 +109,11 @@ bundle（假的 `window.__ModuleLoader__`、假的 `require`、一个 React 替�
 1. `npm run pack`，再 `dsh plugin --profile <p> add ./dist/dsh-import-copilot-files-<v>.tgz`，
    然后**重启 DSH**（profile patch 层不热重载）。
 2. 打开 **设置 → 插件**，确认本插件那张卡片出现，标题与「导入 Copilot 文件」
-   （英文界面 `Import Copilot Files`）一致 —— 出现本身就说明四件事同时成立：`Config`
+   （英文界面 `Import Copilot Files`）一致，行首图标是本插件自己那个而不是面板默认插画 ——
+   出现本身就说明四件事同时成立：`Config`
    解析成功且含 volatile 字段、`dsh-settings` 提供了该条目的表单、`dsh.client` 被扫描到、
-   bundle 被提供且注册的 cell id 与条目 id 相同。
+   bundle 被提供且注册的 cell id 与条目 id 相同。图标与文案由 `readPluginMeta` 直接读清单与
+   `locale/`，可以先用 `npm run verify:meta` 复核（§5）。
 3. 点开卡片，确认页面正文里的字段与页脚，以及行内的「浏览…」：在 DSH Desktop 窗口里按它
    应弹出 Windows 系统选择框，选中的目录直接填进那一行（仍是未保存的草稿，要再点「保存」）。
 4. 加一个真实存在的共享配置目录、保存，然后确认两件事：
@@ -168,3 +176,19 @@ Release 正文取自与 tag 同号的 CHANGELOG 小节，所以**先 bump 再打
 提交列表 —— 这三类缺陷在 `v0.2.0` 上都发生过且没有任何报错：把修复提交 rebase 到 `main` 时，
 两边各自累积的 `[Unreleased]` 内容会被**并列保留**，于是同一段条目在 `## [<version>]` 里出现两次，
 Release 正文跟着重复。rebase 之后、写小节之前先看一遍 CHANGELOG 的标题是否重复。
+
+## 5. 展示元信息：`npm run verify:meta`
+
+插件页那一行的标题、说明与图标由 host 的 `readPluginMeta`（`dsh-app-boot`）在**不激活插件**的
+前提下读：`icon` 按清单里的相对路径取文件、转成 `data:` URL，文案走 `<包名>/locale/en.json`
+及其同级词典（必须是 `exports` 暴露的子路径）。读不到只是回落到面板的默认插画或清单自己的
+`name` / `description`，没有任何报错，所以这一层要单独跑：
+
+```sh
+npm run verify:meta
+node scripts/verify-plugin-meta.mjs --dsh-app <resources/app>
+```
+
+它拿**装好的**那份 reader 复核双语标题/说明与图标能否解码，默认指向本机的 DSH Desktop 安装，
+找不到 reader 就跳过并退 0（所以不进 `npm run check`）。反例（临时把 `icon.svg` 改名）应让其中
+两项失败并退 1。没有 DSH 的环境里，`test/display-metadata.test.js` 用离线断言钉同一份契约。

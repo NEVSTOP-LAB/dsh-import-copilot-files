@@ -17,10 +17,11 @@ pnpm 的 peer 问题清单，所以这条声明不制造新警告。声明的作
 **profile 的 `node_modules`**，而那条路径是部署给的、不保证有什么 —— 所以 `lib/frontmatter.js`
 与 `lib/glob.js` 只能自己写。
 
-唯一的例外是 `@deepseek-ai/schemastery`（设置 schema 必须是真正的 schemastery），它由 DSH 的包
-带进 profile 共享的 `node_modules`，实测可解析：以**装好的**插件路径为基准
-`createRequire('…/profiles/<p>/node_modules/dsh-import-copilot-files/index.js').resolve('@deepseek-ai/schemastery')`
-解析到 Desktop 自带的那份副本。即便如此也**不在模块顶层 import**：`index.js` 里只有一处
+唯一的例外是 `@deepseek-ai/schemastery`（设置 schema 必须是真正的 schemastery），它以
+`createRequire(import.meta.url)` 从**本插件所在的位置**解析，也就是 profile 自己的
+`node_modules`：那里可能是另一个插件带进来的副本（本机 Desktop 2.0.16 上解析到 `3.18.2`），
+也可能落到 DSH 共享的那份。两份的 API 面不同，见 §3.9。即便如此也**不在模块顶层 import**：
+`index.js` 里只有一处
 `createRequire(import.meta.url)('@deepseek-ai/schemastery')`，位于 `Config` getter 的
 taker 里，`try` 包住、结果（含失败）记忆化。所以 clone 下来没有 `node_modules` 也能
 `npm run check`；反过来，某个 profile 真的解析不到它时，丢的是设置页（`Config` 变成
@@ -61,12 +62,15 @@ turn。第三处没有 try/catch 可包：id 不一致时卡片**安静地不渲
 **设置这条链的形态是 dsh `0.1.7` 才改成的**，本插件从该版本起按新形态实现，**不再兼容
 `0.1.5`/`0.1.6`**：那些版本用的是「注册设置命名空间」（`ctx.settings.installSection` +
 `ctx.settingsScope.bind({ namespace })` + `settings.plugin.item`），三处都已在 `0.1.7` 移除或改名。
-`peerDependencies` 里 `@deepseek-ai/dsh-settings` 的范围因此写成 `>=0.1.7-rc.1 <0.2.0`
-（`^0.1.1-rc.2` 这类写法按 semver 的预发布规则**匹配不到** `0.1.7-rc.1`，会让 pnpm 报一条
-invalid peer）。
+`peerDependencies` 里 `@deepseek-ai/dsh-settings` 的范围因此写成 `>=0.1.7-rc.1 <0.3.0`：
+`^0.1.1-rc.2` 这类写法按 semver 的预发布规则**匹配不到** `0.1.7-rc.1`，会让 pnpm 报一条
+invalid peer；上界若收在 `<0.2.0`，DSH 启动前的兼容性检查只因为判据带 `includePrerelease: true`
+才对 `0.2.0-rc.1` 放行，`0.2.0` 正式版会被判成不兼容。`@deepseek-ai/schemastery` 同理写成
+`>=3.18.2 <4.0.0`：范围覆盖 profile 里实际解析得到的那份（§3.9）。
 
-实测环境：**DSH Desktop 2.0.14 / dsh `0.1.7-rc.1`**（§3.5）。旧记录（Desktop 2.0.11/2.0.13 /
-dsh `0.1.5-rc.2`）保留在 §3.1–§3.5 里，因为那三个 host 接缝到 `0.1.7` 一字未改。
+实测环境：**DSH Desktop 2.0.16 / dsh `0.2.0-rc.1`**（§3.5）。旧记录（Desktop 2.0.14 /
+dsh `0.1.7-rc.1`、Desktop 2.0.11/2.0.13 / dsh `0.1.5-rc.2`）保留在 §3.1–§3.4 里，因为那些
+host 接缝至今一字未改。
 
 ## 2. 升级 DSH 之后按顺序查
 
@@ -98,12 +102,16 @@ dsh `0.1.5-rc.2`）保留在 §3.1–§3.5 里，因为那三个 host 接缝到 
    `dsh-client-ui-plugin-manager` 的 `plugins.item` 契约（`view` 与 `id`）、以及
    `dsh-client-modules` 对 `dsh.client`（`platform` / `exports['./client']`）的解析规则。
    这几处是本插件唯一「跟着上游内部形状走」的地方；`npm run verify:settings` 逐条覆盖。
+   profile 里实际解析到的那份 schemastery 是否带 `.volatile()` 也要一起看：它决定 `Config`
+   能否建出来，进而决定该条目有没有表单（§3.9）。
 8. 卡片的目录选择：`uiWorkspace.pickDirectory()` 还在不在，以及 win32 的 DSH Desktop
    profile 是否仍然禁用 `dsh-host-directory-picker-auto`（改挂 `browse` 后端时
    `pick` 会被 Remote 拒绝）、`window.__DSH_DESKTOP_PICK_DIRECTORY__` 是否仍被安装。
 9. 先跑 `npm run check` 排除自己的逻辑回归；改过注入消息或升级 harness 之后，再跑
    `npm run verify:message` —— 它用**装好的** harness 判 `source` 形状，`npm run check` 看不到
    这一层（见 §3.8）。
+10. 插件页那一行与卡片的文案、图标：`readPluginMeta` 从 `package.json` 的 `icon` 与
+    `locale/*.json` 读，`npm run verify:meta` 用**装好的**那份 reader 复核（§3.10）。
 
 ## 3. 验证记录
 
@@ -128,8 +136,8 @@ dsh `0.1.5-rc.2`）保留在 §3.1–§3.5 里，因为那三个 host 接缝到 
 
 ### 3.3 离线
 
-`npm run check`：9 个文件的 `node --check` + 129 项 `node:test`（glob 9 / frontmatter 9 /
-discover 37 / 插件 46 / 设置 9 / 客户端 bundle 19）。
+`npm run check`：12 个文件的 `node --check` + 135 项 `node:test`（glob 9 / frontmatter 9 /
+discover 37 / 插件 46 / 设置 10 / 客户端 bundle 19 / 展示元信息 5）。
 `test/index.test.js` 对着假 Cordis 上下文驱动真实插件对象，覆盖注入顺序、跨会话隔离、
 预算边界、`applyTo` 正反例、移除通知、`paths`、默认的 `~/.copilot` 条目（含关掉它），
 以及**volatile Config → 发现流程**这条端到端链路（含 schema 解析不到、配置是普通对象时的
@@ -143,7 +151,10 @@ discover 37 / 插件 46 / 设置 9 / 客户端 bundle 19）。
 `__ModuleLoader__` + React 替身），覆盖页面注册（entry id、`plugins.item`、`view: 'summary'`
 与 `'page'`）、暂存/保存（含 revision 与回读确认）、只读态、恢复默认、两条目录选择路由与
 选择失败时的提示、样式安装/卸载，以及**「不得再出现 `settingsScope` / `settings.plugin.item`」
-这条回归钉子**。
+这条回归钉子**。`test/display-metadata.test.js` 钉住清单里的展示元信息（§3.10）：`icon` 是包内的
+相对路径、扩展名在受支持之列、不超过 256 KiB；`files` 与 `exports` 都带上图标与
+`locale/*.json`；两份词典的 `meta.title` / `meta.description` 与 `lib/client.js` 里卡片自己
+那份同字。
 
 ### 3.4 设置与页面（2026-09-25，Desktop 2.0.14 / dsh 0.1.7-rc.1）
 
@@ -176,6 +187,8 @@ discover 37 / 插件 46 / 设置 9 / 客户端 bundle 19）。
 | 2026-09-21 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 设置与卡片这条链**读实现**核对（`installSection` 签名与 hooks、namespace 文法、schema 必须可被浏览器重建、卡片按 namespace 派发、`dsh.client` 的解析与 bundle 缺失时的失败方式、客户端 scope 的 `bind`/`mutate` 形状） |
 | 2026-09-25 | Desktop 2.0.14 / dsh 0.1.7-rc.1 | 上一行的**全部结论作废**：`installSection` / `settingsScope` / `settings.plugin.item` 三处都已移除或改名。事故、根因、现场证据与新形态见 §3.6；新形态的全部检查见 §3.4 |
 | 2026-09-25 | Desktop 2.0.14 / dsh 0.1.7-rc.1 | 第二次事故：注入消息的 `source.kind` 还是退役的 V3 包装，v4 在写入时拒绝，整个 turn 失败。根因、实测对照与修复见 §3.8；`source` 形状自此是**格式契约**，不再是「接缝」 |
+| 2026-09-29 | Desktop 2.0.16 / dsh 0.2.0-rc.1 | host 半侧在新版本上照常工作：`~/.copilot` 的指令与技能照常进本会话。设置页在该部署上**不出现**：`Config.listConfigs` 对 `include:dsh-import-copilot-files` 报 `absent`，根因是 profile 解析到的 schemastery `3.18.2` 没有 `.volatile()`，见 §3.9 |
+| 2026-09-29 | Desktop 2.0.16 / dsh 0.2.0-rc.1 | 插件页的展示元信息：`npm run verify:meta` 用装好的 `readPluginMeta` 读出双语标题、说明与可解码的 `data:image/svg+xml` 图标，见 §3.10 |
 
 ### 3.6 事故与根因：客户端启动失败 → 安全模式（2026-09-25）
 
@@ -312,12 +325,67 @@ agent.inject(createUserMessage({ content: [...], source: { kind: 'plugin', plugi
 `try/catch` **拦不住**随后的写入失败，同一个 `format v4 message requires a producer-owned source kind`
 仍会让那个 turn 失败。诊断这类报错时先看是哪一条消息：字符串完全相同，区分不了生产者。
 
+### 3.9 设置页在 Desktop 2.0.16 的 profile 上消失（2026-09-29，schemastery 3.18.2）
+
+**现象。** 升级到 Desktop 2.0.16 / dsh `0.2.0-rc.1` 后，**设置 → 插件**里没有本插件那一项；
+host 半侧照常工作（`~/.copilot` 的指令进注入行、技能进目录）。
+
+**现场证据**（运行中的客户端）：
+
+| 查询 | 结论 |
+| --- | --- |
+| host / `Config.listConfigs`（`name: dsh-import-copilot-files`） | `include:dsh-import-copilot-files` 报 `status: "absent"` —— 该条目没有 `Config` |
+| client / `Slots.listSubTree` `plugins.item` | occupant 只有 `shell` / `agent-loop` / `subagent` / `web-search`，**没有** `dsh-import-copilot-files` 这一格 |
+| 以装好的插件路径为基准构造 schema | `TypeError: z.array(...).default(...).volatile is not a function` |
+
+`Config` getter 的 `try` 把第三个错误吞掉并记忆化成 `undefined`（打出来的那行日志说的是
+「not resolvable」，与真正的原因不同），于是 `dsh-settings` 不服务该条目，
+`configForms.whileServed` 也就不注册任何 cell —— 卡片安静地不出现，没有任何报错。
+
+**链路。** profile 的 `pnpm-workspace.yaml` 是 `nodeLinker: hoisted`，`dsh-git-worktree` 把
+`@deepseek-ai/schemastery@3.18.2` 作为**正式依赖**带进 profile 根的 `node_modules`；插件的
+`createRequire(import.meta.url)` 就近解析到那一份。DSH Desktop 的 profile 解析器对 profile
+自己 `node_modules` 里的候选不做替换，所以拿到的就是 `3.18.2` —— 它的 `Schema` 没有
+`.volatile()`（`3.18.4` 才有），而 `.extra('volatile', true)` 正是 `.volatile()` 的实现方式，
+两份都支持。
+
+**修复。** `lib/settings.js` 用 `volatile(field)` 落这个标记：有 `.volatile()` 就用它，
+否则 `.extra('volatile', true)`。两者写的是同一个 `meta.volatile`，也就是 `dsh-settings` 的
+`volatileForm()` / `isVolatilePath()` 读的那个属性。
+
+**回归钉子。** `test/settings.test.js` 的 `recordingZ({ viaExtra: true })` 用例（只有 `.extra()`、
+没有 `.volatile()` 的替身）；`npm run verify:settings -- --schemastery <profile 里那份>/lib/index.mjs`
+对真实 `3.18.2` 跑 13/13，含真实的 `SettingsForms.describe()`（`ns` / 只含 `paths` 的 `value` /
+`revision`）与真实的 `update()` 写出的行配置。
+
+### 3.10 插件页那一行的图标与文案（2026-09-29）
+
+`package.json` 声明 `icon: './icon.svg'`，`locale/en.json` 与 `locale/zh.json` 各带一份
+`meta.title` / `meta.description`（与 `lib/client.js` 里卡片自己那份词典同字）。
+
+契约在 host 的 `readPluginMeta`（`dsh-app-boot`）里，它在**不激活插件**的前提下读：
+
+- `icon`：相对清单的路径，SVG/PNG/JPEG/WebP，≤256 KiB，realpath 后仍在包内 → 转成 `data:` URL；
+  缺失或不可用时回落到面板默认插画；
+- 文案：`<包名>/locale/en.json` 及其同级词典，**必须是 `exports` 暴露的子路径**
+  （清单里的 `./locale/*.json`），逐语言给 `title` / `description`，缺了回落到清单的
+  `name` / `description`；
+- 两者都要进 `files`，否则 `npm pack` 不带它们。
+
+**实测。** `npm run verify:meta`（`scripts/verify-plugin-meta.mjs`）拿**装好的**读者复核：
+双语标题/说明等于词典、图标解码为 739 字节的 `data:image/svg+xml;base64,…`。反例（把 `icon.svg`
+改名）两项失败并退 1。离线钉子见 `test/display-metadata.test.js`。
+
 ## 4. 还没实测的部分（做完请划掉）
 
 这些是在运行中的 DSH 里**没有**跑过的，代码按实现写，但没到「看见它工作」的程度：
 
 - [ ] 卡片真的出现在 **设置 → 插件**里（要重装插件 + 重启 DSH，见 [development.md §2.3](./development.md)）。
-  2026-09-25 两次事故期间该条目先后被 `desktopDeselectedBundles` 排除，本轮没有在启用状态下重启验证。
+  2026-09-25 两次事故期间该条目先后被 `desktopDeselectedBundles` 排除；2026-09-29 它在
+  Desktop 2.0.16 上的缺失还有第二个原因（§3.9），修复要重装才看得见。装好之后 host 侧
+  `Config.listConfigs` 应从 `absent` 变成 `schema`，`plugins.item` 里应出现本插件那一格。
+- [ ] 插件页那一行与卡片的图标真的换成本插件自己的（`readPluginMeta` 这一层已由 §3.10 实测，
+  渲染出来的样子只能肉眼看）。
 - [ ] **§3.8 的修复在真实会话里跑通**：重装 + 重启后，第一句话不再失败，且 GUI 里出现本插件的
   注入行（行标题「上下文注入」，来源标签 `import-copilot-files`，正文列出 `changes` 里的文件）。
   离线侧已用装好的 harness 验证到准入与 artifact 恢复（§3.8），差的是「在跑着的 DSH 里看见它」。
@@ -331,7 +399,7 @@ agent.inject(createUserMessage({ content: [...], source: { kind: 'plugin', plugi
 - [ ] `loader/volatile-update` 在真实热重载里的触发时机（离线用例是手工发出该事件）。
 - [ ] `whileServed` 在 `Config` 解析不到（无 schemastery）时确实**不注册**任何 cell。
 
-[development.md §2.3](./development.md) 的手工流程覆盖前四条。
+[development.md §2.3](./development.md) 的手工流程覆盖前五条。
 
 ## 5. 「安装时的 peer 警告」怎么自查
 
@@ -347,5 +415,5 @@ pnpm peers check            # 加 --lockfile-only --json 只看 lockfile、机�
 或等它们补齐即可 —— 与本插件无关，也不影响本插件运行。想确认**本插件**不贡献任何一条，
 就在一个只依赖本插件（`"dsh-import-copilot-files": "file:<repo>"`）的临时工程里跑同一条命令，
 应为 `missing: {}` 且退 0 —— 它声明的四个 peer 全是 optional，optional 的缺项不进这份清单；
-但**范围必须能匹配上 profile 里实际装的那一版**：`>=0.1.7-rc.1 <0.2.0` 匹配
-`0.1.7-rc.1`，`^0.1.1-rc.2` 不匹配（§1.3），写错会从「missing」变成一条 invalid peer。
+但**范围必须能匹配上 profile 里实际装的那一版**：`>=0.1.7-rc.1 <0.3.0` 匹配
+`0.1.7-rc.1` 与 `0.2.0-rc.1`，`^0.1.1-rc.2` 不匹配（§1.3），写错会从「missing」变成一条 invalid peer。

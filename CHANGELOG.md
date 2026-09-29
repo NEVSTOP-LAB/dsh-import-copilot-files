@@ -5,6 +5,44 @@
 `scripts/release-notes.mjs`，把与 tag 对应的 `## [<版本>]` 小节抄进 GitHub Release
 正文——所以**发版前先在这里写一节**，否则 Release 只会退化成提交列表。
 
+## [Unreleased]
+
+### 新增
+
+- **插件页那一行/卡片带上本插件自己的图标与双语文案**：`package.json` 声明
+  `icon: './icon.svg'`（36×36、透明底，与官方插件 artwork 同一画法的渐变字形），并新增
+  `locale/en.json` / `locale/zh.json`，给同一行提供标题与说明（与卡片里那份文案同字）。host 的
+  `readPluginMeta` 在**不激活插件**的前提下读它们：`icon` 相对清单、SVG/PNG/JPEG/WebP、
+  ≤256 KiB、realpath 后仍在包内 → 转成 `data:` URL；文案走 `<包名>/locale/en.json` 及其同级
+  词典，所以清单补了 `./locale/*.json` 导出，`files` 也补上 `icon.svg` 与 `locale/*.json`
+  （否则 `npm pack` 不带）。新增 `npm run verify:meta` 用装好的 reader 复核这两者；离线钉子见
+  `test/display-metadata.test.js`。
+
+### 修复
+
+- **Desktop 2.0.16 上设置页消失**：profile 的 `nodeLinker: hoisted`，加上某个插件把
+  `@deepseek-ai/schemastery@3.18.2` 作为正式依赖带进 profile 根的 `node_modules`，本插件的
+  `createRequire` 就近解析到**没有 `.volatile()` 的**那一份，`Config` 因此建不出来
+  （`TypeError: z.array(...).default(...).volatile is not a function`，getter 的 `try` 把它记成
+  「解析不到」），`dsh-settings` 不服务该条目，插件页上就没有本插件那一项 —— 全程没有任何报错。
+  `lib/settings.js` 现在用 `volatile(field)` 落这个标记：有 `.volatile()` 就用它，否则用等价的
+  `.extra('volatile', true)`（两者写的是同一个 `meta.volatile`）。链路与实测证据见
+  [docs/compatibility.md §3.9](./docs/compatibility.md)。
+- **`peerDependencies` 的范围按实测环境对齐**：`@deepseek-ai/dsh-settings` 改为
+  `>=0.1.7-rc.1 <0.3.0`（旧的 `<0.2.0` 上界只因为 DSH 启动前的兼容性检查带
+  `includePrerelease: true` 才对 `0.2.0-rc.1` 放行，`0.2.0` 正式版会被判成不兼容），
+  `@deepseek-ai/schemastery` 改为 `>=3.18.2 <4.0.0`（profile 实际解析到的是 `3.18.2`）。
+
+### 验证
+
+- 实测环境 **DSH Desktop 2.0.16 / dsh `0.2.0-rc.1`**：host 半侧照常工作（`~/.copilot` 的指令与
+  技能进本会话）；`npm run verify:settings -- --schemastery <profile 里那份>/lib/index.mjs`
+  对真实 `3.18.2` 13/13 通过；`npm run verify:meta` 读出双语标题/说明与 739 字节的
+  `data:image/svg+xml` 图标（反例失败并退 1）；`npm run check`：12 个文件的 `node --check` +
+  135 项 `node:test` 全绿。
+- 还没实测：装好的 profile 里那张卡片与图标渲染出来的样子（要重装插件 + 重启 DSH），清单见
+  [docs/compatibility.md §4](./docs/compatibility.md)。
+
 ## [0.2.1] - 2026-09-25
 
 **变更记录修正版**：功能与 `0.2.0` 完全一致，装的还是同一个插件 —— 只是 `0.2.0` 的变更记录里
