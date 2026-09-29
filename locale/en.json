@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Import Copilot Files",
+    "description": "Load VSCode AI configuration that lives outside the workspace"
+  }
+}
