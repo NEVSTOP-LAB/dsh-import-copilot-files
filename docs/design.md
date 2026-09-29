@@ -234,12 +234,15 @@ browser: const scope = ctx.configForms.get(entryId)                 // 读/写�
    （`runtime.Config = plugin.Config`），之后 `resolveConfig` 用它校验组合配置。
    getter 里 `try` + 记忆化，所以「解析不到 schemastery」是一条**受支持的部署路径**：
    `Config` 为 `undefined`，该条目没有表单，卡片不注册，插件照常跑。
-3. **只有 `paths` 是 `.volatile()`。** `dsh-settings` 的 `volatileForm` 从 volatile 字段投影
-   表单，`write` 又用 `validatePaths` 拒绝任何非 volatile 路径 —— 多标一个就会让 GUI 动到
+3. **只有 `paths` 带 `meta.volatile` 标记。** `dsh-settings` 的 `volatileForm` 从 volatile 字段
+   投影表单，`write` 又用 `validatePaths` 拒绝任何非 volatile 路径 —— 多标一个就会让 GUI 动到
    本该只在组合配置里的旋钮，少标一个（或一个都不标）则该条目**没有任何表单**，卡片也就永远
-   不出现。`volatile` 还决定了写入是**原地提交**：`cordis-plugin-loader` 的 `_commitVolatile`
-   把新值写进运行中 config 的引用，所以 `normalizeSettings` 必须每次通过 `.get()` 读
-   （见 §3.7 与 `index.js` 的 `live()`），而不是把 config 快照一次。
+   不出现。标记由 `lib/settings.js` 的 `volatile(field)` 落：谁定义了 `.volatile()` 就用它，
+   否则用等价且更通用的 `.extra('volatile', true)`（profile 可能解析到没有 `.volatile()` 的
+   `3.18.2`，见 [compatibility.md §3.9](./compatibility.md)）。标记还决定了写入是**原地提交**：
+   `cordis-plugin-loader` 的 `_commitVolatile` 把新值写进运行中 config 的引用，所以
+   `normalizeSettings` 必须每次通过 `.get()` 读（见 §3.7 与 `index.js` 的 `live()`），
+   而不是把 config 快照一次。
 4. **卡片的 container 归宿主。** `plugins.item` 的一格同时服务两种 view：
    `view: 'summary'` 是插件页卡片上的那行说明，`view: 'page'` 是打开后页面正文里的表单。
    所以这个 bundle 画的是**表单**而不是卡片，页头、折叠、卡片外框都归宿主的
@@ -280,7 +283,10 @@ fiber** 上发出）并调用 `control.invalidate()`。
 | `lib/glob.js` | `applyTo` 的 glob → RegExp，含括号感知的逗号切分 |
 | `lib/settings.js` | `Config` schema，即该条目的设置文档（`z` 由调用方传入，所以本文件可离线测试） |
 | `lib/client.js` | browser half：`plugins.item` 上的设置页（手写 lazy-CJS bundle，无构建步骤） |
+| `icon.svg` | 插件页那一行/卡片的图标；host 的 `readPluginMeta` 按清单的 `icon` 读它（[compatibility.md §3.10](./compatibility.md)） |
+| `locale/en.json`、`locale/zh.json` | 同上的双语标题与说明（`meta.title` / `meta.description`），作为 `./locale/*.json` 导出 |
 | `scripts/verify-settings-schema.mjs` | 拿真实 schemastery + 真实 `dsh-settings` 复核设置链（找得到才跑，找不到跳过并退 0） |
+| `scripts/verify-plugin-meta.mjs` | 拿装好的 `readPluginMeta` 复核图标与文案（同上） |
 
 ## 5. 已知边界与后续
 

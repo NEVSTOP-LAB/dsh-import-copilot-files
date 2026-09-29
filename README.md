@@ -82,7 +82,7 @@ dsh plugin --profile desktop remove dsh-import-copilot-files            # 卸载
 > 条目下的文件都**即时生效**（每个模型步骤重新读盘），只有改插件自身源码才需要再重启。
 
 > [!WARNING]
-> 需要 **DSH ≥ 0.1.7**（实测 Desktop 2.0.14 / dsh `0.1.7-rc.1`）。该版本重做了设置这条链
+> 需要 **DSH ≥ 0.1.7**（实测 Desktop 2.0.16 / dsh `0.2.0-rc.1`）。该版本重做了设置这条链
 > （设置文档改为由插件自己的 `Config` schema 派生、按 Loader 条目 id 寻址），本版本按新形态
 > 实现，**不再兼容 0.1.5 / 0.1.6**（旧版本请用上一版 tag）。如果你在旧版本上装过并保存过
 > `paths`，那份值停在 `~/.dsh/settings.yaml.imported` 里、不会被自动迁移 —— 手工写回
