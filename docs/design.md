@@ -258,7 +258,7 @@ browser: const scope = ctx.configForms.get(entryId)                 // 读/写�
 `config`）——`dsh-settings` 的 `configEditor` 就是 profile patch 文档；`0.1.5` 时代的
 `$DSH_HOME/settings.yaml` 已由上游迁移或改名，工作区文件一个不写。
 
-「浏览…」按**当前部署能用的路由**取目录：DSH Desktop 的 win32 profile 会把
+「浏览…」按**当前部署能用的路由**取目录：DSH Desktop 在 win32 上会把
 `dsh-host-directory-picker-auto` 禁用掉、改挂 `browse` 后端，而 `browse` 没有 `pick` 能力
 （Remote 会答 `directory-picker/unavailable`），所以那里走 DSH Desktop 装在页面上的
 `window.__DSH_DESKTOP_PICK_DIRECTORY__`；其余组合挂的是 `native` 后端，走

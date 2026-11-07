@@ -66,15 +66,14 @@ DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**�
 
 ## 安装
 
-需要 [dsh CLI](https://github.com/deepseek-ai/deepseek-harness)。`--profile web` 是默认 profile，
-桌面版用 `--profile desktop`，其他 profile 换成对应名字。
+需要 [dsh CLI](https://github.com/deepseek-ai/deepseek-harness)。`--profile web` 是默认 profile，其他 profile 换成对应名字。
 
 ```sh
-dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files
-dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files#<commit-sha>  # 锁定提交
-dsh plugin --profile desktop add ./dsh-import-copilot-files-0.3.0.tgz   # 或 Release 附件里的 tarball
-dsh --profile desktop --dump-config                                     # 确认组合层里出现这一行
-dsh plugin --profile desktop remove dsh-import-copilot-files            # 卸载
+dsh plugin --profile web add github:NEVSTOP-LAB/dsh-import-copilot-files
+dsh plugin --profile web add github:NEVSTOP-LAB/dsh-import-copilot-files#<commit-sha>  # 锁定提交
+dsh plugin --profile web add ./dsh-import-copilot-files-0.3.0.tgz   # 或 Release 附件里的 tarball
+dsh --profile web --dump-config                                     # 确认组合层里出现这一行
+dsh plugin --profile web remove dsh-import-copilot-files            # 卸载
 ```
 
 > [!IMPORTANT]

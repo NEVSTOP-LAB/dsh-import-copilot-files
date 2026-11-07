@@ -289,7 +289,7 @@
 - 设置这条链（`installSection` 签名与 hooks、namespace 文法、卡片按 namespace 派发、
   `dsh.client` 的解析规则与 bundle 缺失时的失败方式、scope 的 `bind`/`mutate` 形状）
   **读实现**逐条核对；本机已挂载 `dsh-settings-file`、`$DSH_HOME/settings.yaml` 可写。
-- 目录选择的两条路由**读实现**核对：win32 的 DSH Desktop profile 禁用
+- 目录选择的两条路由**读实现**核对：win32 的 DSH Desktop 部署禁用
   `dsh-host-directory-picker-auto` 并改挂 `browse` 后端，`browse` 没有 `pick`，Remote 控制器
   按 `requireCapability('native', 'pick')` 答 `directory-picker/unavailable`；
   `window.__DSH_DESKTOP_PICK_DIRECTORY__` 只在 win32 页面上安装。

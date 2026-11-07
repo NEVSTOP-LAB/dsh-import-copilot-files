@@ -183,7 +183,7 @@ discover 37 / 插件 46 / 设置 10 / 客户端 bundle 19 / 展示元信息 5）
 | 日期 | DSH | 结论 |
 | --- | --- | --- |
 | 2026-09-18 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 三个 host 接缝与两处内部契约逐条实测通过；端到端验证见 §3.2 |
-| 2026-09-20 | Desktop 2.0.13 / dsh 0.1.5-rc.2 | 「安装时那条 peer 警告」定位：在 `~/.dsh/profiles/desktop` 上 `pnpm peers check --lockfile-only --json`，`missing` 全是 `@xxxyz/dsh-mcp-manager`、`dsh-approval-mode`、`dsh-context`、`dshmarket` 的缺项，本插件不在其中；补上四个 optional peer 后，在含本插件的 lockfile 上同一命令得到 `missing: {}`、退 0 |
+| 2026-09-20 | Desktop 2.0.13 / dsh 0.1.5-rc.2 | 「安装时那条 peer 警告」定位：在 profile 目录里 `pnpm peers check --lockfile-only --json`，`missing` 全是 `@xxxyz/dsh-mcp-manager`、`dsh-approval-mode`、`dsh-context`、`dshmarket` 的缺项，本插件不在其中；补上四个 optional peer 后，在含本插件的 lockfile 上同一命令得到 `missing: {}`、退 0 |
 | 2026-09-21 | Desktop 2.0.11 / dsh 0.1.5-rc.2 | 设置与卡片这条链**读实现**核对（`installSection` 签名与 hooks、namespace 文法、schema 必须可被浏览器重建、卡片按 namespace 派发、`dsh.client` 的解析与 bundle 缺失时的失败方式、客户端 scope 的 `bind`/`mutate` 形状） |
 | 2026-09-25 | Desktop 2.0.14 / dsh 0.1.7-rc.1 | 上一行的**全部结论作废**：`installSection` / `settingsScope` / `settings.plugin.item` 三处都已移除或改名。事故、根因、现场证据与新形态见 §3.6；新形态的全部检查见 §3.4 |
 | 2026-09-25 | Desktop 2.0.14 / dsh 0.1.7-rc.1 | 第二次事故：注入消息的 `source.kind` 还是退役的 V3 包装，v4 在写入时拒绝，整个 turn 失败。根因、实测对照与修复见 §3.8；`source` 形状自此是**格式契约**，不再是「接缝」 |
@@ -261,7 +261,7 @@ Loader 条目 id**，并且只带了三条别名（`ui-developer-tools` / `ui-on
 ```
 
 本机实测（2026-09-25）：`~/.dsh/settings.yaml.imported` 里的 `import-vscode-ai-files` 小节
-从未被迁进 profile patch，`~/.dsh/profiles/desktop/cordis.patch.yml` 里只有一行
+从未被迁进 profile patch，profile 的 `cordis.patch.yml` 里只有一行
 `- id: dsh-import-copilot-files` + `disabled: false`，没有 `config`。
 
 ### 3.8 事故与根因：注入行让整个 turn 失败（2026-09-25，v4 source kind）

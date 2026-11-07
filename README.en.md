@@ -80,14 +80,14 @@ or resets to the deployment default; `maxBytes`, `scanSubdirectories`, `instruct
 ## Install
 
 Requires the [dsh CLI](https://github.com/deepseek-ai/deepseek-harness). `--profile web` is the
-default profile; DSH Desktop uses `--profile desktop`.
+default profile.
 
 ```sh
-dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files
-dsh plugin --profile desktop add github:NEVSTOP-LAB/dsh-import-copilot-files#<commit-sha>  # pin a commit
-dsh plugin --profile desktop add ./dsh-import-copilot-files-0.3.0.tgz   # or the tarball from a Release
-dsh --profile desktop --dump-config                                     # confirm the row is in the composition
-dsh plugin --profile desktop remove dsh-import-copilot-files            # uninstall
+dsh plugin --profile web add github:NEVSTOP-LAB/dsh-import-copilot-files
+dsh plugin --profile web add github:NEVSTOP-LAB/dsh-import-copilot-files#<commit-sha>  # pin a commit
+dsh plugin --profile web add ./dsh-import-copilot-files-0.3.0.tgz   # or the tarball from a Release
+dsh --profile web --dump-config                                     # confirm the row is in the composition
+dsh plugin --profile web remove dsh-import-copilot-files            # uninstall
 ```
 
 > [!IMPORTANT]
