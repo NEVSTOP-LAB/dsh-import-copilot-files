@@ -103,7 +103,7 @@ const body = [
   `dsh plugin --profile web add github:NEVSTOP-LAB/dsh-import-copilot-files${pinned}`,
   "```",
   "",
-  "`--profile web` 是默认 profile；桌面版用 `--profile desktop`。",
+  "`--profile web` 是默认 profile。",
   "详见 [README](https://github.com/NEVSTOP-LAB/dsh-import-copilot-files#readme)。",
   ""
 ].join("\n");

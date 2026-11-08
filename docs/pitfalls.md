@@ -81,7 +81,7 @@
   另外 volatile 字段解析出来是**活引用**（`{ get(), [Symbol.for(
   'cosmokit.volatile.write')] }`），`normalizeSettings` 必须每次读 `.get()`，把 config 快照
   一次就等于把改动冻住。
-- **「浏览…」不能只走一条路由**。win32 的 DSH Desktop profile 禁用了
+- **「浏览…」不能只走一条路由**。win32 的 DSH Desktop 部署禁用了
   `dsh-host-directory-picker-auto`，改挂 `browse` 后端，而 `browse` 没有 `pick` 能力：
   `uiWorkspace.pickDirectory()` 在那里**必然被拒**（`directory-picker/unavailable`）。
   可用的两条路由是 `window.__DSH_DESKTOP_PICK_DIRECTORY__`（Desktop / win32）与
