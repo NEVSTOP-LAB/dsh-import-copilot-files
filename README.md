@@ -1,3 +1,6 @@
+> [!NOTE]
+> 兼容 DSH 0.2.x（`engines.dsh` 见 `package.json`）；实测 `0.2.0-rc.2`、`0.2.1-rc.5`、`0.2.2-rc.5`（Linux CI 逐版本装载验证）。
+
 # dsh-import-copilot-files
 
 DSH 插件：把一个工作区自带的 **VSCode / Copilot 风格 AI 配置**加载进**每一个** DSH 会话，
@@ -80,12 +83,9 @@ dsh plugin --profile web remove dsh-import-copilot-files            # 卸载
 > profile patch 层**不热重载**，安装后要**重启 DSH**。之后改仓库里的 `.github/**` 或某个 `paths`
 > 条目下的文件都**即时生效**（每个模型步骤重新读盘），只有改插件自身源码才需要再重启。
 
-> [!WARNING]
-> 需要 **DSH ≥ 0.1.7**（实测 Desktop 2.0.16 / dsh `0.2.0-rc.1`）。该版本重做了设置这条链
-> （设置文档改为由插件自己的 `Config` schema 派生、按 Loader 条目 id 寻址），本版本按新形态
-> 实现，**不再兼容 0.1.5 / 0.1.6**（旧版本请用上一版 tag）。如果你在旧版本上装过并保存过
-> `paths`，那份值停在 `~/.dsh/settings.yaml.imported` 里、不会被自动迁移 —— 手工写回
-> `cordis.patch.yml` 的方法见
+> [!NOTE]
+> `paths` 若是在更早的 DSH 上保存的，那份值停在 `~/.dsh/settings.yaml.imported` 里、不会被自动
+> 迁移；手工写回 `cordis.patch.yml` 的方法见
 > [docs/compatibility.md §3.7](./docs/compatibility.md)。
 
 ### 安装时那条 peer 依赖警告

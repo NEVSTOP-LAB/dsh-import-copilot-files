@@ -5,6 +5,29 @@
 `scripts/release-notes.mjs`，把与 tag 对应的 `## [<版本>]` 小节抄进 GitHub Release
 正文——所以**发版前先在这里写一节**，否则 Release 只会退化成提交列表。
 
+## [Unreleased]
+
+**兼容性声明**：新增 `engines.dsh`，宿主包 peer 范围放宽并对齐预发布边界，另加一条逐版本装载
+验证的 `dsh-compat` 工作流。
+
+### 新增
+
+- **`engines.dsh` = `>=0.1.7-rc.1 <0.3.0-0`**：DSH 启动前按
+  `semver.satisfies(runtimeVersion, engines.dsh, { includePrerelease: true })` 判定插件兼容性；
+  下界是设置这条链的最低可用版本，上界排除 `0.3` 及其预发布。
+- **`.github/workflows/dsh-compat.yml`**：矩阵由 `prepare` job 按 `engines.dsh` 过滤
+  `0.2.0-rc.2` / `0.2.1-rc.5` / `0.2.2-rc.5`（0.2.x 每个大版本取最新非 alpha 版本），逐版本把
+  tarball 装进隔离 profile，断言 `--dump-config` 出现本插件行、入口可从 profile `import`，
+  并跑 `npm run check` 与 `npm test`。
+- **README 顶部加兼容 callout**（中英两版），实测版本只写在这一处，正文里的版本要求段落删除。
+
+### 修复
+
+- **peer 范围收口到预发布边界**：`@deepseek-ai/cordis` 从 `^4.0.4` 改为
+  `>=4.0.4 <5.0.0-0`；`@deepseek-ai/dsh-settings` 上界从 `<0.3.0` 改为 `<0.3.0-0`；
+  `@deepseek-ai/schemastery` 从 `>=3.18.2 <4.0.0` 改为 `>=3.18.2 <4.0.0-0`。原来的上界会把
+  `0.3.0-alpha.N`、`4.0.0-alpha.N` 这类预发布也算作兼容。
+
 ## [0.3.0] - 2026-09-29
 
 **本版是功能 + 修复**：本插件在 **设置 → 插件** 里的那一行/卡片现在带上自己的图标与双语文案，

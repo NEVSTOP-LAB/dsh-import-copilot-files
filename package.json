@@ -44,10 +44,13 @@
       "inject": []
     }
   },
+  "engines": {
+    "dsh": ">=0.1.7-rc.1 <0.3.0-0"
+  },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-settings": ">=0.1.7-rc.1 <0.3.0",
-    "@deepseek-ai/schemastery": ">=3.18.2 <4.0.0",
+    "@deepseek-ai/cordis": ">=4.0.4 <5.0.0-0",
+    "@deepseek-ai/dsh-settings": ">=0.1.7-rc.1 <0.3.0-0",
+    "@deepseek-ai/schemastery": ">=3.18.2 <4.0.0-0",
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
