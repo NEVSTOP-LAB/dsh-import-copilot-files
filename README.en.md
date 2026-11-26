@@ -1,3 +1,6 @@
+> [!NOTE]
+> Compatible with DSH 0.2.x (see `engines.dsh` in `package.json`); tested against `0.2.0-rc.2`, `0.2.1-rc.5` and `0.2.2-rc.5` (each version installed into a profile on Linux CI).
+
 # dsh-import-copilot-files
 
 A DSH plugin that loads a workspace's own **VSCode / Copilot style AI configuration** (`.github/`)
@@ -95,13 +98,9 @@ dsh plugin --profile web remove dsh-import-copilot-files            # uninstall
 > editing `.github/**` in a repository or a file under a `paths` entry takes effect **immediately**
 > (it is re-read on every model step); only editing the plugin's own source needs another restart.
 
-> [!WARNING]
-> Requires **DSH ≥ 0.1.7** (measured on Desktop 2.0.16 / dsh `0.2.0-rc.1`). That release rebuilt the
-> settings chain — a plugin's own `Config` schema is its settings document, addressed by Loader
-> entry id — and this version implements the new shape, so it is **not compatible with 0.1.5 /
-> 0.1.6** (use the previous tag there). If you installed on an older version and saved `paths`, that
-> value is stranded in `~/.dsh/settings.yaml.imported` and is not migrated automatically; how to
-> write it back into `cordis.patch.yml` is in
+> [!NOTE]
+> A `paths` value saved on an earlier DSH is stranded in `~/.dsh/settings.yaml.imported` and is not
+> migrated automatically; how to write it back into `cordis.patch.yml` is in
 > [docs/compatibility.md §3.7](./docs/compatibility.md).
 
 ### The peer-dependency warning during installation

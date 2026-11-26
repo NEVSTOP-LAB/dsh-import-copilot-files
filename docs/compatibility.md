@@ -54,23 +54,29 @@ turn。第三处没有 try/catch 可包：id 不一致时卡片**安静地不渲
 （`index.js` 的 `SETTINGS_ENTRY_ID`、`lib/client.js` 的 `ENTRY_ID`、`cordis.patch.yml` 的
 `insert[].id`）由 `npm run verify:settings` 直接比对。
 
-### 1.3 版本要求
+### 1.3 版本范围
 
-加载期不 import 任何 DSH 包，所以兼容性由 §1.2 的清单决定；`peerDependencies` 里的范围只是
-契约记录（全 optional，不会被安装，也不会拦安装）。
+加载期不 import 任何 DSH 包，所以运行期兼容性由 §1.2 的清单决定；`peerDependencies` 里的范围
+只是契约记录（全 optional，不会被安装，也不会拦安装）。真正把关的是 `package.json` 的
+`engines.dsh`：`>=0.1.7-rc.1 <0.3.0-0`。
 
-**设置这条链的形态是 dsh `0.1.7` 才改成的**，本插件从该版本起按新形态实现，**不再兼容
-`0.1.5`/`0.1.6`**：那些版本用的是「注册设置命名空间」（`ctx.settings.installSection` +
-`ctx.settingsScope.bind({ namespace })` + `settings.plugin.item`），三处都已在 `0.1.7` 移除或改名。
-`peerDependencies` 里 `@deepseek-ai/dsh-settings` 的范围因此写成 `>=0.1.7-rc.1 <0.3.0`：
-`^0.1.1-rc.2` 这类写法按 semver 的预发布规则**匹配不到** `0.1.7-rc.1`，会让 pnpm 报一条
-invalid peer；上界若收在 `<0.2.0`，DSH 启动前的兼容性检查只因为判据带 `includePrerelease: true`
-才对 `0.2.0-rc.1` 放行，`0.2.0` 正式版会被判成不兼容。`@deepseek-ai/schemastery` 同理写成
-`>=3.18.2 <4.0.0`：范围覆盖 profile 里实际解析得到的那份（§3.9）。
+- 下界 `0.1.7-rc.1`：设置这条链（设置文档由插件自己的 `Config` schema 派生、按 Loader 条目 id
+  寻址、页面走 `configForms` 与 `plugins.item`）的最低可用版本。`0.1.5`/`0.1.6` 用的是已被移除的
+  「注册设置命名空间」（`ctx.settings.installSection` + `ctx.settingsScope.bind({ namespace })` +
+  `settings.plugin.item`），落在范围外，装上也不工作。
+- 上界 `<0.3.0-0`：排除 `0.3` 及其预发布。
 
-实测环境：**DSH Desktop 2.0.16 / dsh `0.2.0-rc.1`**（§3.5）。旧记录（Desktop 2.0.14 /
-dsh `0.1.7-rc.1`、Desktop 2.0.11/2.0.13 / dsh `0.1.5-rc.2`）保留在 §3.1–§3.4 里，因为那些
-host 接缝至今一字未改。
+`peerDependencies` 与之一致：`@deepseek-ai/dsh-settings` 写 `>=0.1.7-rc.1 <0.3.0-0`，
+`@deepseek-ai/cordis` 写 `>=4.0.4 <5.0.0-0`，`@deepseek-ai/schemastery` 写
+`>=3.18.2 <4.0.0-0`（覆盖 profile 里实际解析得到的那份，§3.9）。上界都带 `-0`：写成
+`<0.3.0` / `<4.0.0` 时，`0.3.0-alpha.N`、`4.0.0-alpha.N` 这类预发布仍落在范围内。
+`dsh-settings` 的下界不能写成 `^0.1.1-rc.2` 那样的 caret 范围：按 semver 的预发布规则它匹配不到
+`0.1.7-rc.1`，pnpm 会报一条 invalid peer。
+
+判定口径与 DSH 一致：`semver.satisfies(runtimeVersion, engines.dsh, { includePrerelease: true })`。
+被测矩阵是 0.2.x 每个大版本取最新非 alpha 版本 —— `0.2.0-rc.2`、`0.2.1-rc.5`、`0.2.2-rc.5`，
+由 [`.github/workflows/dsh-compat.yml`](../.github/workflows/dsh-compat.yml) 逐版本装载验证，
+记录见 §3.11。本机手工验证环境的记录保留在 §3.1–§3.10。
 
 ## 2. 升级 DSH 之后按顺序查
 
@@ -189,6 +195,7 @@ discover 37 / 插件 46 / 设置 10 / 客户端 bundle 19 / 展示元信息 5）
 | 2026-09-25 | Desktop 2.0.14 / dsh 0.1.7-rc.1 | 第二次事故：注入消息的 `source.kind` 还是退役的 V3 包装，v4 在写入时拒绝，整个 turn 失败。根因、实测对照与修复见 §3.8；`source` 形状自此是**格式契约**，不再是「接缝」 |
 | 2026-09-29 | Desktop 2.0.16 / dsh 0.2.0-rc.1 | host 半侧在新版本上照常工作：`~/.copilot` 的指令与技能照常进本会话。设置页在该部署上**不出现**：`Config.listConfigs` 对 `include:dsh-import-copilot-files` 报 `absent`，根因是 profile 解析到的 schemastery `3.18.2` 没有 `.volatile()`，见 §3.9 |
 | 2026-09-29 | Desktop 2.0.16 / dsh 0.2.0-rc.1 | 插件页的展示元信息：`npm run verify:meta` 用装好的 `readPluginMeta` 读出双语标题、说明与可解码的 `data:image/svg+xml` 图标，见 §3.10 |
+| 2026-11-26 | Linux CI × dsh `0.2.0-rc.2`、`0.2.1-rc.5`、`0.2.2-rc.5` | 0.2.x 装载验证改由 [`.github/workflows/dsh-compat.yml`](../.github/workflows/dsh-compat.yml) 逐版本执行，矩阵按 `engines.dsh` 过滤，机制与本机复现方式见 §3.11；结论以该工作流的运行记录为准 |
 
 ### 3.6 事故与根因：客户端启动失败 → 安全模式（2026-09-25）
 
@@ -376,6 +383,33 @@ host 半侧照常工作（`~/.copilot` 的指令进注入行、技能进目录�
 双语标题/说明等于词典、图标解码为 739 字节的 `data:image/svg+xml;base64,…`。反例（把 `icon.svg`
 改名）两项失败并退 1。离线钉子见 `test/display-metadata.test.js`。
 
+### 3.11 与 DSH 0.2.x 的装载验证（CI）
+
+`.github/workflows/dsh-compat.yml` 是兼容声明的守门人：`pull_request`、`push` 到 `main`、
+`workflow_dispatch` 与每周一次的 `schedule` 都会跑。
+
+1. `prepare`：从 `package.json` 读 `engines.dsh`，用 `semver@7 -p -r` 过滤候选
+   （`DSH_VERSIONS` 里是 `0.2.0-rc.2`、`0.2.1-rc.5`、`0.2.2-rc.5` —— 0.2.x 每个大版本取最新
+   非 alpha 版本）。下界抬高后不再覆盖的版本自动退出矩阵，不需要改工作流；一个都不覆盖时该
+   job 直接失败。
+2. `checks`：`npm install` 后跑 `npm run check` 与 `npm test`，只跑一次，不随版本重复。
+3. `compat`（矩阵，每个版本一个 job）：`npm pack` 出 tarball → 用该版本的 CLI 装进隔离
+   profile（`DSH_HOME` 指向 runner 临时目录，**不缓存**，否则会留下上一次构建的 tarball）→
+   `--dump-config` 断言组合结果里出现本插件行（bundle patch 生效）→ 在 profile 的依赖上下文里
+   `import` 插件入口。`~/.npm` 与 `~/.cache/pnpm` 按键缓存，键含 DSH 版本。
+
+装载验证覆盖的是「装得上、组合得进、入口 import 得通」这一层；运行期行为由 §3.1–§3.10 的手工
+与离线记录背书，两者互补。判定口径与 DSH 启动前一致（`includePrerelease: true`，§1.3），所以
+矩阵里的 rc 版本与将来的正式版结论可比。
+
+本机复现同口径（不经过 CI）：按 `engines.dsh` 覆盖到的版本逐个执行
+`npx -y @deepseek-ai/dsh@<版本> plugin --profile compat add <tarball>`（`DSH_HOME` 指到临时目录），
+再 `--dump-config`，最后 `cd $DSH_HOME/profiles/compat && node --input-type=module -e "await import('<包名>')"`。
+
+> [!NOTE]
+> 并发跑多份这样的验证时给各自独立的 npm 缓存目录：共用一个 `--cache` 会让 npm 报
+> `ECOMPROMISED`（lock compromised）。
+
 ## 4. 还没实测的部分（做完请划掉）
 
 这些是在运行中的 DSH 里**没有**跑过的，代码按实现写，但没到「看见它工作」的程度：
@@ -415,5 +449,5 @@ pnpm peers check            # 加 --lockfile-only --json 只看 lockfile、机�
 或等它们补齐即可 —— 与本插件无关，也不影响本插件运行。想确认**本插件**不贡献任何一条，
 就在一个只依赖本插件（`"dsh-import-copilot-files": "file:<repo>"`）的临时工程里跑同一条命令，
 应为 `missing: {}` 且退 0 —— 它声明的四个 peer 全是 optional，optional 的缺项不进这份清单；
-但**范围必须能匹配上 profile 里实际装的那一版**：`>=0.1.7-rc.1 <0.3.0` 匹配
-`0.1.7-rc.1` 与 `0.2.0-rc.1`，`^0.1.1-rc.2` 不匹配（§1.3），写错会从「missing」变成一条 invalid peer。
+但**范围必须能匹配上 profile 里实际装的那一版**：`>=0.1.7-rc.1 <0.3.0-0` 覆盖 `0.1.7-rc.1` 与
+整个 `0.2.x`，`^0.1.1-rc.2` 不匹配（§1.3），写错会从「missing」变成一条 invalid peer。
